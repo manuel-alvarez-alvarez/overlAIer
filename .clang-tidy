@@ -1,0 +1,14 @@
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-assignment-in-if-condition,
+  clang-analyzer-*,
+  misc-redundant-expression,
+  misc-unused-parameters,
+  performance-*,
+  portability-*,
+
+WarningsAsErrors: ''
+HeaderFilterRegex: 'src/.*\.h$'
+FormatStyle: file
