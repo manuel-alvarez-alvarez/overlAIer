@@ -1,6 +1,18 @@
-cmake_minimum_required(VERSION 4.3)
-project(overlaier C)
+cmake_minimum_required(VERSION 3.25.1)
+project(overlAIer C)
 
-set(CMAKE_C_STANDARD 23)
+add_subdirectory(pipeline)
+add_subdirectory(processors)
 
-add_executable(overlaier main.c)
+# --- deploy target ---
+# Builds everything and copies the executable + processor plugins to
+# ${CMAKE_SOURCE_DIR}/build/ for easy deployment.
+set(DEPLOY_DIR ${CMAKE_SOURCE_DIR}/build)
+
+add_custom_target(deploy
+    DEPENDS overlAIer ${ALL_PROCESSOR_TARGETS}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${DEPLOY_DIR}/processors
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:overlAIer> ${DEPLOY_DIR}/
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_BINARY_DIR}/processors ${DEPLOY_DIR}/processors
+    COMMENT "Deploying to ${DEPLOY_DIR}"
+)

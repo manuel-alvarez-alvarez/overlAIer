@@ -133,4 +133,10 @@ fabric.properties
 # https://plugins.jetbrains.com/plugin/8053-azure-toolkit-for-intellij
 .idea/**/azureSettings.xml
 
-# End of https://www.toptal.com/developers/gitignore/api/cmake,jetbrains
+# End of https://www.toptal.com/developers/gitignore/api/cmake,jetbrains+
+
+build
+.cache
+.DS_Store
+.idea/
+dist/
