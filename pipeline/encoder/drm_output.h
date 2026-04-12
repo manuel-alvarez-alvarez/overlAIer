@@ -19,6 +19,8 @@ struct ovl_drm_flip {
     int in_use;
     int pending;
     int done;
+    uint32_t flip_seq;       // DRM vblank sequence
+    uint64_t flip_timestamp_us; // DRM vblank timestamp (microseconds)
 };
 
 struct ovl_drm_output {
@@ -70,7 +72,12 @@ int ovl_drm_output_show(struct ovl_drm_output *out, int fb_index, int capture_in
 
 // Poll for completed flips and return capture buffers ready to requeue.
 // timeout_ms < 0 blocks indefinitely, 0 = non-blocking.
-int ovl_drm_output_acquire_ready(struct ovl_drm_output *out, int timeout_ms, int *capture_index);
+// Wait for a flip to complete. Returns 1 if a flip completed, 0 if timeout, -1 on error.
+// capture_index: if non-NULL, receives the capture buffer index of the completed flip.
+// flip_seq: if non-NULL, receives the DRM vblank sequence number.
+// flip_timestamp_us: if non-NULL, receives the DRM vblank timestamp in microseconds.
+int ovl_drm_output_acquire_ready(struct ovl_drm_output *out, int timeout_ms, int *capture_index,
+                                 uint32_t *flip_seq, uint64_t *flip_timestamp_us);
 
 // Number of pending flips (capture buffers currently owned by DRM).
 int ovl_drm_output_pending(const struct ovl_drm_output *out);

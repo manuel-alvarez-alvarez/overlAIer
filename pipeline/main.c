@@ -772,16 +772,25 @@ struct video_thread_ctx {
     uint64_t frame_count;
 };
 
+// Drain a completed flip and requeue the capture buffer.
+static int drain_flips(struct video_thread_ctx *ctx, int timeout_ms) {
+    int done_idx;
+    int ready = ovl_drm_output_acquire_ready(ctx->output, timeout_ms, &done_idx,
+                                              NULL, NULL);
+    if (ready > 0)
+        ovl_v4l2_capture_queue(ctx->cap, done_idx);
+    return ready;
+}
+
 static void *video_thread_fn(void *arg) {
     struct video_thread_ctx *ctx = arg;
     int consecutive_errors = 0;
     int max_pending = 1; // keep latency low: max 1 pending flip
 
     while (running && !signal_lost) {
-        int done_idx;
         int ready;
-        while ((ready = ovl_drm_output_acquire_ready(ctx->output, 0, &done_idx)) > 0)
-            ovl_v4l2_capture_queue(ctx->cap, done_idx);
+        while ((ready = drain_flips(ctx, 0)) > 0)
+            ;
         if (ready < 0) {
             ZF_LOGE("video: failed to poll DRM events");
             signal_lost = 1;
@@ -789,11 +798,9 @@ static void *video_thread_fn(void *arg) {
         }
 
         while (ovl_drm_output_pending(ctx->output) >= max_pending) {
-            ready = ovl_drm_output_acquire_ready(ctx->output, 16, &done_idx);
-            if (ready > 0) {
-                ovl_v4l2_capture_queue(ctx->cap, done_idx);
+            ready = drain_flips(ctx, 16);
+            if (ready > 0)
                 continue;
-            }
             if (ready < 0) {
                 ZF_LOGE("video: failed to poll DRM events");
                 signal_lost = 1;
@@ -803,7 +810,8 @@ static void *video_thread_fn(void *arg) {
         if (signal_lost || !running)
             break;
 
-        int latest = ovl_v4l2_capture_dequeue(ctx->cap);
+        struct ovl_v4l2_dequeue_info dq_info = {0};
+        int latest = ovl_v4l2_capture_dequeue(ctx->cap, &dq_info);
         if (latest < 0) {
             consecutive_errors++;
             if (consecutive_errors > 5) {
@@ -817,9 +825,11 @@ static void *video_thread_fn(void *arg) {
         consecutive_errors = 0;
 
         int next;
-        while ((next = ovl_v4l2_capture_dequeue_nb(ctx->cap)) >= 0) {
+        struct ovl_v4l2_dequeue_info next_dq = {0};
+        while ((next = ovl_v4l2_capture_dequeue_nb(ctx->cap, &next_dq)) >= 0) {
             ovl_v4l2_capture_queue(ctx->cap, latest);
             latest = next;
+            dq_info = next_dq;
         }
 
         int show_ret = 0;
@@ -843,9 +853,30 @@ static void *video_thread_fn(void *arg) {
             break;
         }
 
-        // Post frame to processors (non-blocking, never delays video)
-        if (ctx->proc_mgr)
-            ovl_processor_mgr_post_frame(ctx->proc_mgr, NULL, ctx->cap->width, ctx->cap->height, 0);
+        // Notify processors of frame submit + capture metadata
+        if (ctx->proc_mgr) {
+            struct timespec now;
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            uint64_t submit_us = (uint64_t)now.tv_sec * 1000000ULL +
+                                 (uint64_t)now.tv_nsec / 1000ULL;
+
+            struct ovl_frame_info finfo = {
+                .sequence = dq_info.sequence,
+                .timestamp_us = dq_info.timestamp_us,
+                .width = ctx->cap->width,
+                .height = ctx->cap->height,
+                .stride = ctx->cap->buffers[latest].pitches[0],
+            };
+            ovl_processor_mgr_post_frame(ctx->proc_mgr, NULL, &finfo);
+
+            struct ovl_frame_info flip_info = {
+                .sequence = dq_info.sequence,
+                .timestamp_us = submit_us,
+                .width = ctx->cap->width,
+                .height = ctx->cap->height,
+            };
+            ovl_processor_mgr_notify_flip(ctx->proc_mgr, &flip_info);
+        }
 
         ctx->frame_count++;
 
@@ -854,8 +885,8 @@ static void *video_thread_fn(void *arg) {
             continue;
         }
 
-        while ((ready = ovl_drm_output_acquire_ready(ctx->output, 0, &done_idx)) > 0)
-            ovl_v4l2_capture_queue(ctx->cap, done_idx);
+        while ((ready = drain_flips(ctx, 0)) > 0)
+            ;
         if (ready < 0) {
             ZF_LOGE("video: failed to poll DRM events");
             signal_lost = 1;
@@ -865,7 +896,7 @@ static void *video_thread_fn(void *arg) {
 
     int flushed;
     int ready;
-    while ((ready = ovl_drm_output_acquire_ready(ctx->output, 50, &flushed)) > 0)
+    while ((ready = ovl_drm_output_acquire_ready(ctx->output, 50, &flushed, NULL, NULL)) > 0)
         ovl_v4l2_capture_queue(ctx->cap, flushed);
 
     return NULL;

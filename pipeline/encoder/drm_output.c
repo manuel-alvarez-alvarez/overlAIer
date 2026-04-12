@@ -237,14 +237,13 @@ static void release_flip(struct ovl_drm_flip *flip) {
 static void flip_handler(int fd, unsigned int seq, unsigned int sec, unsigned int usec,
                          void *user_data) {
     (void)fd;
-    (void)seq;
-    (void)sec;
-    (void)usec;
     struct ovl_drm_flip *flip = user_data;
     if (!flip)
         return;
     flip->pending = 0;
     flip->done = 1;
+    flip->flip_seq = seq;
+    flip->flip_timestamp_us = (uint64_t)sec * 1000000ULL + (uint64_t)usec;
 }
 
 int ovl_drm_output_init(struct ovl_drm_output *out, const char *device, uint32_t fourcc,
@@ -577,7 +576,7 @@ int ovl_drm_output_show(struct ovl_drm_output *out, int fb_index, int capture_in
 
     struct ovl_drm_flip *flip = alloc_flip(out);
     if (!flip) {
-        ovl_drm_output_acquire_ready(out, 16, NULL);
+        ovl_drm_output_acquire_ready(out, 16, NULL, NULL, NULL);
         flip = alloc_flip(out);
         if (!flip) {
             drmModeAtomicFree(req);
@@ -673,11 +672,16 @@ static int find_done_flip(struct ovl_drm_output *out) {
     return -1;
 }
 
-int ovl_drm_output_acquire_ready(struct ovl_drm_output *out, int timeout_ms, int *capture_index) {
+int ovl_drm_output_acquire_ready(struct ovl_drm_output *out, int timeout_ms, int *capture_index,
+                                 uint32_t *flip_seq, uint64_t *flip_timestamp_us) {
     int idx = find_done_flip(out);
     if (idx >= 0) {
         if (capture_index)
             *capture_index = out->flips[idx].capture_index;
+        if (flip_seq)
+            *flip_seq = out->flips[idx].flip_seq;
+        if (flip_timestamp_us)
+            *flip_timestamp_us = out->flips[idx].flip_timestamp_us;
         release_flip(&out->flips[idx]);
         return 1;
     }
@@ -708,6 +712,10 @@ int ovl_drm_output_acquire_ready(struct ovl_drm_output *out, int timeout_ms, int
     if (idx >= 0) {
         if (capture_index)
             *capture_index = out->flips[idx].capture_index;
+        if (flip_seq)
+            *flip_seq = out->flips[idx].flip_seq;
+        if (flip_timestamp_us)
+            *flip_timestamp_us = out->flips[idx].flip_timestamp_us;
         release_flip(&out->flips[idx]);
         return 1;
     }

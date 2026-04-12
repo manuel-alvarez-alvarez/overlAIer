@@ -19,9 +19,9 @@ struct proc_slot {
     // Frame mailbox: video thread writes, processor thread reads
     pthread_mutex_t frame_lock;
     pthread_cond_t frame_cond;
-    void *frame_buf; // copy of the frame for this processor
-    uint32_t frame_width, frame_height, frame_stride;
-    int frame_ready; // 1 = new frame available
+    void *frame_buf;           // copy of the frame for this processor
+    struct ovl_frame_info frame_info; // capture metadata
+    int frame_ready;           // 1 = new frame available
 
     // Output primitives (owned by processor, read by compositor)
     struct ovl_primitive *prims;
@@ -52,12 +52,8 @@ struct ovl_processor_mgr {
 static void *processor_thread_fn(void *arg) {
     struct proc_slot *slot = arg;
     const struct ovl_processor_def *def = slot->def;
-    int max_fps = def->input.max_fps;
-    long min_interval_ns = max_fps > 0 ? (1000000000L / max_fps) : 0;
-    struct timespec last_frame = {0, 0};
 
     while (slot->running) {
-        // Wait for a new frame
         pthread_mutex_lock(&slot->frame_lock);
         while (!slot->frame_ready && slot->running)
             pthread_cond_wait(&slot->frame_cond, &slot->frame_lock);
@@ -68,24 +64,10 @@ static void *processor_thread_fn(void *arg) {
         slot->frame_ready = 0;
         pthread_mutex_unlock(&slot->frame_lock);
 
-        // Throttle if max_fps is set
-        if (min_interval_ns > 0) {
-            struct timespec now;
-            clock_gettime(CLOCK_MONOTONIC, &now);
-            long elapsed =
-                (now.tv_sec - last_frame.tv_sec) * 1000000000L + (now.tv_nsec - last_frame.tv_nsec);
-            if (elapsed < min_interval_ns)
-                continue; // skip this frame
-            last_frame = now;
-        }
-
-        // Call the processor
         struct ovl_primitive *prims = NULL;
         int count = 0;
-        def->process(slot->state, slot->frame_buf, slot->frame_width, slot->frame_height,
-                     slot->frame_stride, &prims, &count);
+        def->on_frame(slot->state, slot->frame_buf, &slot->frame_info, &prims, &count);
 
-        // Store the output primitives
         slot->prims = prims;
         slot->prim_count = count;
         slot->prims_dirty = 1;
@@ -149,9 +131,7 @@ int ovl_processor_mgr_register(struct ovl_processor_mgr *mgr, const struct ovl_p
     pthread_mutex_init(&slot->frame_lock, NULL);
     pthread_cond_init(&slot->frame_cond, NULL);
 
-    ZF_LOGD("processor_mgr: registered '%s' (fmt=%s %ux%u max_fps=%d)", def->name,
-            def->input.format ? ovl_pixfmt_name(def->input.format) : "same", def->input.width,
-            def->input.height, def->input.max_fps);
+    ZF_LOGD("processor_mgr: registered '%s'", def->name);
     return 0;
 }
 
@@ -249,22 +229,16 @@ int ovl_processor_mgr_start(struct ovl_processor_mgr *mgr, enum ovl_pixfmt src_f
         struct proc_slot *slot = &mgr->slots[i];
         const struct ovl_processor_def *def = slot->def;
 
-        // Determine actual input dimensions
-        uint32_t w = def->input.width ? def->input.width : src_width;
-        uint32_t h = def->input.height ? def->input.height : src_height;
-
-        // Allocate frame buffer for this processor
-        int bpp = ovl_pixfmt_bpp(def->input.format ? def->input.format : src_fmt);
+        // Allocate frame buffer (same format/resolution as capture)
+        int bpp = ovl_pixfmt_bpp(src_fmt);
         if (bpp <= 0)
-            bpp = 3; // fallback
-        slot->frame_buf = malloc((size_t)(w * (uint32_t)bpp * h));
-        slot->frame_width = w;
-        slot->frame_height = h;
-        slot->frame_stride = w * (uint32_t)bpp;
+            bpp = 3;
+        slot->frame_buf = malloc((size_t)(src_width * (uint32_t)bpp * src_height));
+        slot->frame_info.width = src_width;
+        slot->frame_info.height = src_height;
+        slot->frame_info.stride = src_width * (uint32_t)bpp;
 
-        // Init the processor
-        enum ovl_pixfmt proc_fmt = def->input.format ? def->input.format : src_fmt;
-        slot->state = def->init(def, w, h, proc_fmt);
+        slot->state = def->init(def, src_width, src_height, src_fmt);
         if (!slot->state) {
             ZF_LOGW("processor_mgr: '%s' init failed, skipping", def->name);
             free(slot->frame_buf);
@@ -277,14 +251,14 @@ int ovl_processor_mgr_start(struct ovl_processor_mgr *mgr, enum ovl_pixfmt src_f
         slot->running = 1;
         pthread_create(&slot->thread, NULL, processor_thread_fn, slot);
 
-        ZF_LOGD("processor_mgr: started '%s' (%ux%u)", def->name, w, h);
+        ZF_LOGD("processor_mgr: started '%s' (%ux%u)", def->name, src_width, src_height);
     }
 
     return 0;
 }
 
 void ovl_processor_mgr_post_frame(struct ovl_processor_mgr *mgr, const void *frame_data,
-                                  uint32_t width, uint32_t height, uint32_t stride) {
+                                  const struct ovl_frame_info *info) {
     if (!mgr || !mgr->active)
         return;
 
@@ -295,19 +269,21 @@ void ovl_processor_mgr_post_frame(struct ovl_processor_mgr *mgr, const void *fra
 
         // TODO: convert format/scale if processor needs different input
         // For now, copy the frame as-is (works when processor wants same format)
-        uint32_t w = slot->frame_width;
-        uint32_t h = slot->frame_height;
-        uint32_t src_stride = stride;
-        uint32_t dst_stride = slot->frame_stride;
+        uint32_t w = slot->frame_info.width;
+        uint32_t h = slot->frame_info.height;
+        uint32_t src_stride = info->stride;
+        uint32_t dst_stride = slot->frame_info.stride;
         uint32_t copy_bytes = dst_stride < src_stride ? dst_stride : src_stride;
 
         // Non-blocking: if processor is still busy, just overwrite the buffer
         pthread_mutex_lock(&slot->frame_lock);
-        if (w == width && h == height) {
+        if (frame_data && w == info->width && h == info->height) {
             for (uint32_t y = 0; y < h; y++)
                 memcpy((char *)slot->frame_buf + y * dst_stride,
                        (const char *)frame_data + y * src_stride, copy_bytes);
         }
+        slot->frame_info.sequence = info->sequence;
+        slot->frame_info.timestamp_us = info->timestamp_us;
         slot->frame_ready = 1;
         pthread_cond_signal(&slot->frame_cond);
         pthread_mutex_unlock(&slot->frame_lock);
@@ -315,6 +291,19 @@ void ovl_processor_mgr_post_frame(struct ovl_processor_mgr *mgr, const void *fra
 
     // Composite after posting (check if any processor has new output)
     composite_overlay(mgr);
+}
+
+void ovl_processor_mgr_notify_flip(struct ovl_processor_mgr *mgr,
+                                   const struct ovl_frame_info *info) {
+    if (!mgr || !mgr->active)
+        return;
+
+    for (int i = 0; i < mgr->num_processors; i++) {
+        struct proc_slot *slot = &mgr->slots[i];
+        if (!slot->running || !slot->def->on_flip)
+            continue;
+        slot->def->on_flip(slot->state, info);
+    }
 }
 
 void ovl_processor_mgr_destroy(struct ovl_processor_mgr *mgr) {

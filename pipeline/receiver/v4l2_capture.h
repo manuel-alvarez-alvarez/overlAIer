@@ -27,6 +27,11 @@ struct ovl_v4l2_capture {
     struct ovl_v4l2_buffer buffers[OVL_V4L2_NUM_BUFFERS];
 };
 
+struct ovl_v4l2_dequeue_info {
+    uint32_t sequence;     // V4L2 buffer sequence number
+    uint64_t timestamp_us; // dequeue timestamp in microseconds (CLOCK_MONOTONIC)
+};
+
 struct ovl_v4l2_capture_config {
     uint32_t pixelformat; // V4L2 fourcc, 0 = device default
     uint32_t width;       // 0 = device default
@@ -46,10 +51,12 @@ int ovl_v4l2_capture_init(struct ovl_v4l2_capture *cap, const char *device,
 int ovl_v4l2_capture_start(struct ovl_v4l2_capture *cap);
 
 // Dequeue a filled buffer (blocks until frame available). Returns buffer index.
-int ovl_v4l2_capture_dequeue(struct ovl_v4l2_capture *cap);
+// If dq_info is non-NULL, fills it with sequence and timestamp.
+int ovl_v4l2_capture_dequeue(struct ovl_v4l2_capture *cap, struct ovl_v4l2_dequeue_info *dq_info);
 
 // Non-blocking dequeue. Returns buffer index, or -1 if no frame ready.
-int ovl_v4l2_capture_dequeue_nb(struct ovl_v4l2_capture *cap);
+// If dq_info is non-NULL, fills it with sequence and timestamp.
+int ovl_v4l2_capture_dequeue_nb(struct ovl_v4l2_capture *cap, struct ovl_v4l2_dequeue_info *dq_info);
 
 // Requeue a buffer for capture
 int ovl_v4l2_capture_queue(struct ovl_v4l2_capture *cap, int index);
