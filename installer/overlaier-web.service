@@ -1,0 +1,16 @@
+[Unit]
+Description=OverlAIer Web Interface
+Documentation=https://github.com/manuel-alvarez-alvarez/overlAIer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.overlaier/web
+ExecStart=%h/.overlaier/web/venv/bin/python -m overlaier_web
+EnvironmentFile=-%h/.overlaier/overlaier.env
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
