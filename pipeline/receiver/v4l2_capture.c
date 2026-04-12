@@ -8,6 +8,7 @@
 #include <sys/mman.h>
 #include <poll.h>
 #include <errno.h>
+#include <time.h>
 #include <linux/videodev2.h>
 
 #include "../common/log.h"
@@ -289,7 +290,16 @@ int ovl_v4l2_capture_start(struct ovl_v4l2_capture *cap) {
     return 0;
 }
 
-int ovl_v4l2_capture_dequeue(struct ovl_v4l2_capture *cap) {
+static void fill_dequeue_info(struct ovl_v4l2_dequeue_info *dq, const struct v4l2_buffer *buf) {
+    if (!dq)
+        return;
+    dq->sequence = buf->sequence;
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    dq->timestamp_us = (uint64_t)now.tv_sec * 1000000ULL + (uint64_t)now.tv_nsec / 1000ULL;
+}
+
+int ovl_v4l2_capture_dequeue(struct ovl_v4l2_capture *cap, struct ovl_v4l2_dequeue_info *dq_info) {
     // Wait up to 500ms for a frame — detect signal loss if no frame arrives
     struct pollfd pfd = {.fd = cap->fd, .events = POLLIN};
     int pr = poll(&pfd, 1, 500);
@@ -319,10 +329,11 @@ int ovl_v4l2_capture_dequeue(struct ovl_v4l2_capture *cap) {
         return -1;
     }
 
+    fill_dequeue_info(dq_info, &buf);
     return (int)buf.index;
 }
 
-int ovl_v4l2_capture_dequeue_nb(struct ovl_v4l2_capture *cap) {
+int ovl_v4l2_capture_dequeue_nb(struct ovl_v4l2_capture *cap, struct ovl_v4l2_dequeue_info *dq_info) {
     struct v4l2_buffer buf = {
         .type = cap->buf_type,
         .memory = V4L2_MEMORY_MMAP,
@@ -342,6 +353,7 @@ int ovl_v4l2_capture_dequeue_nb(struct ovl_v4l2_capture *cap) {
     if (ioctl(cap->fd, VIDIOC_DQBUF, &buf) < 0)
         return -1;
 
+    fill_dequeue_info(dq_info, &buf);
     return (int)buf.index;
 }
 

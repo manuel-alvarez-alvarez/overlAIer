@@ -28,10 +28,14 @@ int ovl_processor_mgr_load_file(struct ovl_processor_mgr *mgr, const char *path)
 int ovl_processor_mgr_start(struct ovl_processor_mgr *mgr, enum ovl_pixfmt src_fmt,
                             uint32_t src_width, uint32_t src_height);
 
-// Post a new frame to all processors (non-blocking).
+// Post a new captured frame to all processors (non-blocking).
 // The frame data is copied internally for processors that need it.
 void ovl_processor_mgr_post_frame(struct ovl_processor_mgr *mgr, const void *frame_data,
-                                  uint32_t width, uint32_t height, uint32_t stride);
+                                  const struct ovl_frame_info *info);
+
+// Notify all processors that a frame has been displayed (DRM flip completed).
+void ovl_processor_mgr_notify_flip(struct ovl_processor_mgr *mgr,
+                                   const struct ovl_frame_info *info);
 
 // Stop all processor threads and free resources.
 void ovl_processor_mgr_destroy(struct ovl_processor_mgr *mgr);
