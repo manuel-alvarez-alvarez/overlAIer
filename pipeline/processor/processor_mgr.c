@@ -233,6 +233,13 @@ int ovl_processor_mgr_start(struct ovl_processor_mgr *mgr, enum ovl_pixfmt src_f
         // Init the processor
         enum ovl_pixfmt proc_fmt = def->input.format ? def->input.format : src_fmt;
         slot->state = def->init(def, w, h, proc_fmt);
+        if (!slot->state) {
+            ZF_LOGW("processor_mgr: '%s' init failed, skipping", def->name);
+            free(slot->frame_buf);
+            slot->frame_buf = NULL;
+            slot->running = 0;
+            continue;
+        }
 
         // Start thread
         slot->running = 1;
@@ -251,7 +258,8 @@ void ovl_processor_mgr_post_frame(struct ovl_processor_mgr *mgr, const void *fra
 
     for (int i = 0; i < mgr->num_processors; i++) {
         struct proc_slot *slot = &mgr->slots[i];
-        const struct ovl_processor_def *def = slot->def;
+        if (!slot->running)
+            continue;
 
         // TODO: convert format/scale if processor needs different input
         // For now, copy the frame as-is (works when processor wants same format)

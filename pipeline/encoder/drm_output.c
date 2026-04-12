@@ -155,9 +155,9 @@ static uint32_t find_crtc_for_connector(int fd, drmModeResPtr res, drmModeConnec
     return 0;
 }
 
-// Find a connected output. If connector_name is set (e.g. "HDMI-A-2"),
-// prefer that connector. Falls back to first connected if not found.
-// Handles both already-configured connectors and unconfigured ones (finds a free CRTC).
+// require that exact connector. Otherwise use the first connected output with
+// a usable CRTC. Handles both already-configured connectors and unconfigured
+// ones (finds a free CRTC).
 static int find_connected_output(int fd, const char *connector_name, uint32_t *connector_id,
                                  uint32_t *crtc_id) {
     drmModeResPtr res = drmModeGetResources(fd);
@@ -188,8 +188,10 @@ static int find_connected_output(int fd, const char *connector_name, uint32_t *c
             }
             drmModeFreeConnector(conn);
         }
-        ZF_LOGW("drm: connector %s not found or disconnected, using first available",
+        ZF_LOGE("drm: requested connector %s not found, disconnected, or has no usable CRTC",
                 connector_name);
+        drmModeFreeResources(res);
+        return -1;
     }
 
     // Second pass: first connected connector with a usable CRTC
@@ -272,7 +274,10 @@ int ovl_drm_output_init(struct ovl_drm_output *out, const char *device, uint32_t
         out->async_supported = 1;
 
     if (find_connected_output(out->fd, connector_name, &out->connector_id, &out->crtc_id) < 0) {
-        ZF_LOGE("no connected output found");
+        if (connector_name && connector_name[0])
+            ZF_LOGE("drm: failed to claim requested connector %s", connector_name);
+        else
+            ZF_LOGE("no connected output found");
         close(out->fd);
         return -1;
     }
@@ -634,6 +639,12 @@ int ovl_drm_output_show(struct ovl_drm_output *out, int fb_index, int capture_in
     if (ret < 0 && errno == EBUSY) {
         release_flip(flip);
         return 1; // previous flip pending, frame skipped
+    }
+    if (ret < 0 && (errno == EACCES || errno == EPERM)) {
+        ZF_LOGE("drm: atomic commit denied — no DRM master. "
+                "Is a compositor using this connector?");
+        release_flip(flip);
+        return -1;
     }
     if (ret < 0) {
         release_flip(flip);
