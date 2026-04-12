@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          target: artifacts
+          outputs: type=local,dest=./dist
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify artifacts
+        run: |
+          ls -la dist/
+          ls -la dist/processors/
+          file dist/overlAIer
+
+      - name: Package tarball
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          STAGING="overlaier-${VERSION}-linux-aarch64"
+          mkdir -p "${STAGING}/bin" "${STAGING}/processors"
+          cp dist/overlAIer "${STAGING}/bin/"
+          cp dist/processors/*.so "${STAGING}/processors/"
+          chmod +x "${STAGING}/bin/overlAIer"
+          tar czf "${STAGING}.tar.gz" "${STAGING}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "overlAIer ${{ steps.version.outputs.version }}"
+          generate_release_notes: true
+          files: |
+            overlaier-${{ steps.version.outputs.version }}-linux-aarch64.tar.gz
