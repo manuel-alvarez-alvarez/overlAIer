@@ -182,7 +182,7 @@ static int find_connected_output(int fd, const char *connector_name, uint32_t *c
                     *crtc_id = crtc;
                     drmModeFreeConnector(conn);
                     drmModeFreeResources(res);
-                    ZF_LOGI("drm: using requested connector %s (crtc=%u)", connector_name, crtc);
+                    ZF_LOGD("drm: using requested connector %s (crtc=%u)", connector_name, crtc);
                     return 0;
                 }
             }
@@ -317,7 +317,7 @@ int ovl_drm_output_init(struct ovl_drm_output *out, const char *device, uint32_t
                 }
             }
             if (best) {
-                ZF_LOGI("drm: setting mode %ux%u@%uHz", best->hdisplay, best->vdisplay,
+                ZF_LOGD("drm: setting mode %ux%u@%uHz", best->hdisplay, best->vdisplay,
                         best->vrefresh);
                 // Get current fb to pass to SetCrtc (required, can't be 0)
                 drmModeCrtcPtr cur = drmModeGetCrtc(out->fd, out->crtc_id);
@@ -554,9 +554,9 @@ int ovl_drm_output_show(struct ovl_drm_output *out, int fb_index, int capture_in
     if (!prop_fb_id) {
         cache_plane_props(out->fd, out->plane_id);
         if (prop_fb_id)
-            ZF_LOGI("drm: atomic nonblock path (plane props cached)");
+            ZF_LOGD("drm: atomic nonblock path (plane props cached)");
         else
-            ZF_LOGI("drm: legacy SetPlane path (no plane props)");
+            ZF_LOGD("drm: legacy SetPlane path (no plane props)");
     }
 
     // Use atomic commit with NONBLOCK for lowest latency
@@ -795,7 +795,7 @@ enum ovl_pixfmt ovl_drm_output_find_overlay_plane(struct ovl_drm_output *out,
                     ovl_prop_src_h =
                         find_prop(out->fd, out->overlay_plane_id, DRM_MODE_OBJECT_PLANE, "SRC_H");
 
-                    ZF_LOGI("drm: overlay plane %u, format %s", out->overlay_plane_id,
+                    ZF_LOGD("drm: overlay plane %u, format %s", out->overlay_plane_id,
                             ovl_pixfmt_name(preferred_fmts[f]));
                     return preferred_fmts[f];
                 }
@@ -862,7 +862,7 @@ int ovl_drm_output_create_overlay_fb(struct ovl_drm_output *out, uint32_t width,
     // Clear to transparent
     memset(out->overlay_map, 0, create.size);
 
-    ZF_LOGI("drm: overlay fb %u created %ux%u %s (pitch=%u)", out->overlay_fb_id, width, height,
+    ZF_LOGD("drm: overlay fb %u created %ux%u %s (pitch=%u)", out->overlay_fb_id, width, height,
             ovl_pixfmt_name(out->overlay_fmt), create.pitch);
     return 0;
 }

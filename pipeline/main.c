@@ -912,7 +912,7 @@ static void *audio_thread_fn(void *arg) {
     long buf_size = (long)ovl_alsa_playback_buffer_size(ctx->playback);
     long target_fill = buf_size / 2; // aim for half-full
 
-    ZF_LOGI("audio: adaptive resampling, target fill=%ld/%ld", target_fill, buf_size);
+    ZF_LOGD("audio: adaptive resampling, target fill=%ld/%ld", target_fill, buf_size);
 
     int audio_errors = 0;
     while (running && !signal_lost) {
@@ -1239,7 +1239,7 @@ static int cmd_run(struct options *opts) {
         ZF_LOGI("output=%s plane=%s", ovl_pixfmt_name(neg.fmt),
                 neg.use_primary ? "primary" : "overlay");
         if (neg.needs_conversion)
-            ZF_LOGI("converter=%s -> %s", ovl_pixfmt_name(actual), ovl_pixfmt_name(neg.fmt));
+            ZF_LOGD("converter=%s -> %s", ovl_pixfmt_name(actual), ovl_pixfmt_name(neg.fmt));
 
         // --- Converter ---
         struct ovl_converter *conv = NULL;
@@ -1261,7 +1261,7 @@ static int cmd_run(struct options *opts) {
                 delay_ms(REINIT_DELAY_MS);
                 continue;
             }
-            ZF_LOGI("backend=%s", ovl_converter_backend_name(conv));
+            ZF_LOGD("backend=%s", ovl_converter_backend_name(conv));
         }
 
         // --- DRM output ---
@@ -1283,7 +1283,7 @@ static int cmd_run(struct options *opts) {
         }
         if (opts->async_flip && output.async_supported) {
             output.async_flip = 1;
-            ZF_LOGI("async page flip enabled (may cause tearing)");
+            ZF_LOGD("async page flip enabled (may cause tearing)");
         } else if (opts->async_flip) {
             ZF_LOGW("async flip requested but not supported; using vsync");
             output.async_flip = 0;

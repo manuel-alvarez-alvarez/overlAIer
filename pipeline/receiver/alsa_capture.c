@@ -91,7 +91,7 @@ int ovl_alsa_capture_init(struct ovl_alsa_capture **out, const char *device,
 
     snd_pcm_hw_params_get_period_size(params, &cap->period_size, NULL);
 
-    ZF_LOGI("alsa capture: %s %uHz %uch period=%lu", snd_pcm_format_name(cap->format), cap->rate,
+    ZF_LOGD("alsa capture: %s %uHz %uch period=%lu", snd_pcm_format_name(cap->format), cap->rate,
             cap->channels, (unsigned long)cap->period_size);
 
     *out = cap;
@@ -148,7 +148,7 @@ int ovl_alsa_capture_read(struct ovl_alsa_capture *cap, void *buf, unsigned int 
         return -1;
     }
 
-    ZF_LOGI("alsa capture: reopened successfully");
+    ZF_LOGD("alsa capture: reopened successfully");
     usleep(200000); // 200ms backoff after reopen to avoid spin-loop
     return 0;
 }

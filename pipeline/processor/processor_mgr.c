@@ -149,7 +149,7 @@ int ovl_processor_mgr_register(struct ovl_processor_mgr *mgr, const struct ovl_p
     pthread_mutex_init(&slot->frame_lock, NULL);
     pthread_cond_init(&slot->frame_cond, NULL);
 
-    ZF_LOGI("processor_mgr: registered '%s' (fmt=%s %ux%u max_fps=%d)", def->name,
+    ZF_LOGD("processor_mgr: registered '%s' (fmt=%s %ux%u max_fps=%d)", def->name,
             def->input.format ? ovl_pixfmt_name(def->input.format) : "same", def->input.width,
             def->input.height, def->input.max_fps);
     return 0;
@@ -197,7 +197,7 @@ int ovl_processor_mgr_load_dir(struct ovl_processor_mgr *mgr, const char *dir) {
         if (ovl_processor_mgr_register(mgr, def) == 0) {
             mgr->dl_handles[mgr->num_dl_handles++] = handle;
             loaded++;
-            ZF_LOGI("processor_mgr: loaded plugin '%s' from %s", def->name, ent->d_name);
+            ZF_LOGD("processor_mgr: loaded plugin '%s' from %s", def->name, ent->d_name);
         } else {
             dlclose(handle);
         }
@@ -245,7 +245,7 @@ int ovl_processor_mgr_start(struct ovl_processor_mgr *mgr, enum ovl_pixfmt src_f
         slot->running = 1;
         pthread_create(&slot->thread, NULL, processor_thread_fn, slot);
 
-        ZF_LOGI("processor_mgr: started '%s' (%ux%u)", def->name, w, h);
+        ZF_LOGD("processor_mgr: started '%s' (%ux%u)", def->name, w, h);
     }
 
     return 0;

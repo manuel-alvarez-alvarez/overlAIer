@@ -58,7 +58,7 @@ int ovl_alsa_playback_init(struct ovl_alsa_playback **out, const char *device, i
     snd_pcm_sw_params(play->pcm, sw);
 
     snd_pcm_hw_params_get_buffer_size(params, &play->buffer_size);
-    ZF_LOGI("alsa playback: %s %uHz %uch period=%lu buf=%lu (%.1fms)",
+    ZF_LOGD("alsa playback: %s %uHz %uch period=%lu buf=%lu (%.1fms)",
             snd_pcm_format_name((snd_pcm_format_t)format), rate, channels, (unsigned long)ps,
             (unsigned long)play->buffer_size, (double)play->buffer_size / rate * 1000.0);
 
