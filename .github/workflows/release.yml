@@ -1,9 +1,7 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -13,13 +11,29 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute version
+        id: version
+        uses: paulhatch/semantic-version@v5.4.0
+        with:
+          tag_prefix: "v"
+          major_pattern: "/(^|\\n)(feat|fix|refactor|perf)(\\(.*\\))?!:/"
+          minor_pattern: "/^(feat)(\\(.*\\))?:/"
+          version_format: "v${major}.${minor}.${patch}"
+
+      - name: Check version is new
+        run: |
+          TAG="${{ steps.version.outputs.version_tag }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG already exists. No new conventional commits since last release."
+            exit 1
+          fi
+          echo "Will release $TAG"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Extract version
-        id: version
-        run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Build
         uses: docker/build-push-action@v5
@@ -39,7 +53,7 @@ jobs:
 
       - name: Package tarball
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${{ steps.version.outputs.version_tag }}"
           STAGING="overlaier-${VERSION}-linux-aarch64"
           mkdir -p "${STAGING}/bin" "${STAGING}/processors"
           cp dist/overlAIer "${STAGING}/bin/"
@@ -47,10 +61,39 @@ jobs:
           chmod +x "${STAGING}/bin/overlAIer"
           tar czf "${STAGING}.tar.gz" "${STAGING}"
 
+      - name: Build changelog
+        id: changelog
+        uses: mikepenz/release-changelog-builder-action@v5
+        with:
+          configurationJson: |
+            {
+              "template": "#{{CHANGELOG}}",
+              "categories": [ 
+                { "title": "## 🚀 Features", "labels": ["feat", "feature"] },
+                { "title": "## 🐛 Fixes", "labels": ["fix", "bug"] },
+                { "title": "## Other", "labels": [] }
+              ],
+              "label_extractor": [
+                {
+                  "pattern": "^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test){1}(\\([\\w\\-\\.]+\\))?(!)?: ([\\w ])+([\\s\\S]*)",
+                  "on_property": "title",
+                  "target": "$1"
+                }
+              ]
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create tag
+        run: |
+          git tag "${{ steps.version.outputs.version_tag }}"
+          git push origin "${{ steps.version.outputs.version_tag }}"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "overlAIer ${{ steps.version.outputs.version }}"
-          generate_release_notes: true
+          tag_name: ${{ steps.version.outputs.version_tag }}
+          name: "overlAIer ${{ steps.version.outputs.version_tag }}"
+          body: ${{ steps.changelog.outputs.changelog }}
           files: |
-            overlaier-${{ steps.version.outputs.version }}-linux-aarch64.tar.gz
+            overlaier-${{ steps.version.outputs.version_tag }}-linux-aarch64.tar.gz
