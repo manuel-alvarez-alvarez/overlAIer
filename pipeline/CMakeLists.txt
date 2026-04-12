@@ -58,7 +58,7 @@ target_link_libraries(overlAIer PRIVATE ALSA::ALSA PkgConfig::DRM ${LIBYUV_LIB} 
 # Log level: VERBOSE in debug, WARN in release (compile-time removal)
 target_compile_definitions(overlAIer PRIVATE
     $<$<CONFIG:Debug>:ZF_LOG_LEVEL=ZF_LOG_VERBOSE>
-    $<$<CONFIG:Release>:ZF_LOG_LEVEL=ZF_LOG_WARN>
+    $<$<CONFIG:Release>:ZF_LOG_LEVEL=ZF_LOG_INFO>
     $<$<CONFIG:RelWithDebInfo>:ZF_LOG_LEVEL=ZF_LOG_INFO>
 )
 
