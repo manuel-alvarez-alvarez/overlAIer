@@ -57,10 +57,10 @@ jobs:
           VERSION="${{ steps.version.outputs.version_tag }}"
           STAGING="overlaier-${VERSION}-linux-aarch64"
           mkdir -p "${STAGING}/bin" "${STAGING}/processors" "${STAGING}/lib"
-          cp dist/overlAIer "${STAGING}/bin/"
+          cp dist/overlAIer dist/overlAIer.bin "${STAGING}/bin/"
           cp dist/processors/*.so "${STAGING}/processors/"
-          cp dist/lib/*.so* "${STAGING}/lib/"
-          chmod +x "${STAGING}/bin/overlAIer"
+          cp dist/lib/* "${STAGING}/lib/"
+          chmod +x "${STAGING}/bin/overlAIer" "${STAGING}/bin/overlAIer.bin"
           tar czf "${STAGING}.tar.gz" "${STAGING}"
 
       - name: Resolve changelog range

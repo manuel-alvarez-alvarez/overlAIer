@@ -43,17 +43,21 @@ RUN mkdir -p build && cd build && \
     cmake .. -DCMAKE_BUILD_TYPE=Release && \
     cmake --build . -j$(nproc) --target deploy
 
-# Bundle shared library dependencies so the binary is portable across glibc versions
+# Bundle shared library dependencies + dynamic linker for full portability
 RUN mkdir -p build/lib && \
     for bin in build/overlAIer build/processors/*.so; do \
         ldd "$bin" 2>/dev/null | awk '/=>/ && !/linux-vdso/ {print $3}' ; \
     done | sort -u | while read -r lib; do \
         cp -L "$lib" build/lib/ ; \
     done && \
+    cp -L /lib/ld-linux-aarch64.so.1 build/lib/ && \
     patchelf --set-rpath '$ORIGIN/lib' build/overlAIer && \
     for so in build/processors/*.so; do \
         patchelf --set-rpath '$ORIGIN/../lib' "$so" ; \
-    done
+    done && \
+    mv build/overlAIer build/overlAIer.bin && \
+    printf '#!/bin/sh\nSCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"\nexec "$SCRIPT_DIR/lib/ld-linux-aarch64.so.1" "$SCRIPT_DIR/overlAIer.bin" "$@"\n' > build/overlAIer && \
+    chmod +x build/overlAIer
 
 # Output stage: just the built artifacts
 FROM scratch AS artifacts
