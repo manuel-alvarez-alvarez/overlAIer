@@ -61,14 +61,27 @@ jobs:
           chmod +x "${STAGING}/bin/overlAIer"
           tar czf "${STAGING}.tar.gz" "${STAGING}"
 
+      - name: Resolve changelog range
+        id: range
+        run: |
+          PREV=$(git tag --sort=-v:refname | head -1 || true)
+          if [ -n "$PREV" ]; then
+            echo "from=$PREV" >> "$GITHUB_OUTPUT"
+          else
+            FIRST=$(git rev-list --max-parents=0 HEAD)
+            echo "from=$FIRST" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build changelog
         id: changelog
         uses: mikepenz/release-changelog-builder-action@v5
         with:
+          fromTag: ${{ steps.range.outputs.from }}
+          toTag: ${{ github.sha }}
           configurationJson: |
             {
               "template": "#{{CHANGELOG}}",
-              "categories": [ 
+              "categories": [
                 { "title": "## 🚀 Features", "labels": ["feat", "feature"] },
                 { "title": "## 🐛 Fixes", "labels": ["fix", "bug"] },
                 { "title": "## Other", "labels": [] }
