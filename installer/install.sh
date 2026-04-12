@@ -212,6 +212,12 @@ do_install() {
     tmpdir="$(mktemp -d)"
     trap 'rm -rf "$tmpdir"' EXIT
 
+    # Stop running service before updating binaries
+    if systemctl --user is-active overlaier.service >/dev/null 2>&1; then
+        info "Stopping running service..."
+        systemctl --user stop overlaier.service 2>/dev/null || true
+    fi
+
     info "Downloading $tarball..."
     fetch "$url" "$tmpdir/$tarball"
 
@@ -262,12 +268,18 @@ TOML
 
     setup_web_venv
 
+    # Restart service if it was enabled
+    if systemctl --user is-enabled overlaier.service >/dev/null 2>&1; then
+        info "Starting service..."
+        systemctl --user start overlaier.service 2>/dev/null || true
+    fi
+
     printf "\n"
     success "overlAIer ${version} installed successfully!"
     printf "\n"
     info "Binary:     $BIN_DIR/overlAIer"
     info "Processors: $PROCESSORS_DIR/"
-    info "Config:     $INSTALL_DIR/overlaier.env (create to set environment)"
+    info "Config:     $INSTALL_DIR/overlaier.toml"
     info "Services:   systemctl --user start overlaier"
     printf "\n"
     warn "Restart your shell or run:  source ~/.bashrc"
