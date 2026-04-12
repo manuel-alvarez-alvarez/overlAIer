@@ -56,9 +56,10 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version_tag }}"
           STAGING="overlaier-${VERSION}-linux-aarch64"
-          mkdir -p "${STAGING}/bin" "${STAGING}/processors"
+          mkdir -p "${STAGING}/bin" "${STAGING}/processors" "${STAGING}/lib"
           cp dist/overlAIer "${STAGING}/bin/"
           cp dist/processors/*.so "${STAGING}/processors/"
+          cp dist/lib/*.so* "${STAGING}/lib/"
           chmod +x "${STAGING}/bin/overlAIer"
           tar czf "${STAGING}.tar.gz" "${STAGING}"
 

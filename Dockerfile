@@ -1,6 +1,9 @@
 FROM public.ecr.aws/docker/library/debian:trixie-slim AS build
 
 ARG DEBIAN_FRONTEND=noninteractive
+ARG LIBDISPLAY_INFO_VERSION=0.3.0
+ARG LIBYUV_VERSION=main
+ARG LIBRGA_VERSION=v2.2.0-1-20260121-2cffdf6
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -16,17 +19,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpango1.0-dev \
     libsamplerate0-dev \
     libdisplay-info-dev \
+    patchelf \
     && rm -rf /var/lib/apt/lists/*
 
 # libyuv: build from source
-RUN git clone --depth 1 https://chromium.googlesource.com/libyuv/libyuv /tmp/libyuv && \
+RUN git clone --branch $LIBYUV_VERSION --depth 1 https://chromium.googlesource.com/libyuv/libyuv /tmp/libyuv && \
     cd /tmp/libyuv && mkdir build && cd build && \
     cmake .. -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=ON && \
     make -j$(nproc) && make install && \
     rm -rf /tmp/libyuv
 
 # librga: Rockchip RGA userspace library
-RUN git clone --depth 1 https://github.com/tsukumijima/librga-rockchip.git /tmp/librga && \
+RUN git clone --branch $LIBRGA_VERSION --depth 1 https://github.com/tsukumijima/librga-rockchip.git /tmp/librga && \
     cd /tmp/librga && \
     meson setup build --prefix=/usr && \
     ninja -C build && ninja -C build install && \
@@ -38,6 +42,18 @@ COPY . .
 RUN mkdir -p build && cd build && \
     cmake .. -DCMAKE_BUILD_TYPE=Release && \
     cmake --build . -j$(nproc) --target deploy
+
+# Bundle shared library dependencies so the binary is portable across glibc versions
+RUN mkdir -p build/lib && \
+    for bin in build/overlAIer build/processors/*.so; do \
+        ldd "$bin" 2>/dev/null | awk '/=>/ && !/linux-vdso/ {print $3}' ; \
+    done | sort -u | while read -r lib; do \
+        cp -L "$lib" build/lib/ ; \
+    done && \
+    patchelf --set-rpath '$ORIGIN/lib' build/overlAIer && \
+    for so in build/processors/*.so; do \
+        patchelf --set-rpath '$ORIGIN/../lib' "$so" ; \
+    done
 
 # Output stage: just the built artifacts
 FROM scratch AS artifacts

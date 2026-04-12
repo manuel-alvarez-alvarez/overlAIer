@@ -194,13 +194,14 @@ do_install() {
     fetch "$url" "$tmpdir/$tarball"
 
     info "Extracting..."
-    mkdir -p "$BIN_DIR" "$PROCESSORS_DIR" "$WEB_DIR"
+    mkdir -p "$BIN_DIR" "$PROCESSORS_DIR" "$INSTALL_DIR/lib" "$WEB_DIR"
     tar xzf "$tmpdir/$tarball" -C "$INSTALL_DIR" --strip-components=1
 
     chmod +x "$BIN_DIR/overlAIer"
 
-    # Symlink so the binary finds processors via <exe_dir>/processors/
+    # Symlinks so the binary finds processors and bundled libs via rpath
     ln -sfn "../processors" "$BIN_DIR/processors"
+    ln -sfn "../lib" "$BIN_DIR/lib"
 
     info "Installing systemd services..."
     install_service_units
