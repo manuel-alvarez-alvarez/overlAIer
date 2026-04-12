@@ -8,7 +8,7 @@
 // Returns 0 on success, -1 on error, 1 if file does not exist.
 int ovl_config_load(const char *path, struct options *opts);
 
-// Write the default config path (~/.overlaier/overlaier.toml) into buf.
+// Write the default config path (~/.overlaier/overlAIer.toml) into buf.
 // Returns 0 on success, -1 if HOME is unset or buf is too small.
 int ovl_config_default_path(char *buf, int len);
 

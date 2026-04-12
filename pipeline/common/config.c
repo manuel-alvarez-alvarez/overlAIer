@@ -16,7 +16,7 @@ int ovl_config_default_path(char *buf, int len) {
     char *slash = strrchr(exe, '/');
     if (!slash)
         return -1;
-    int w = snprintf(buf, (size_t)len, "%.*s/overlaier.toml",
+    int w = snprintf(buf, (size_t)len, "%.*s/overlAIer.toml",
                      (int)(slash - exe), exe);
     return (w >= len) ? -1 : 0;
 }

@@ -2,8 +2,8 @@
 Description=Watch overlAIer config for changes
 
 [Path]
-PathChanged=%h/.overlaier/overlaier.toml
-Unit=overlaier-config-reload.service
+PathChanged=%h/.overlaier/overlAIer.toml
+Unit=overlAIer-config-reload.service
 
 [Install]
 WantedBy=default.target

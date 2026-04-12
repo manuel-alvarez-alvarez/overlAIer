@@ -82,7 +82,7 @@ static void print_usage(const char *prog) {
         "  --format,    -O FORMAT    Output format: plain (default), json\n"
         "\n"
         "General:\n"
-        "  --config,    -C PATH      Config file (default: ~/.overlaier/overlaier.toml)\n"
+        "  --config,    -C PATH      Config file (default: ~/.overlaier/overlAIer.toml)\n"
         "  --log-level, -L LEVEL     Log level: verbose, debug, info, warn, error, fatal, none\n"
         "  --async-flip              Enable async page flip (tearing, lower latency)\n"
         "  --help,      -h           Show this help\n",

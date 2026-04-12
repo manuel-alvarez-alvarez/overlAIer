@@ -15,6 +15,6 @@ add_custom_target(deploy
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:overlAIer> ${DEPLOY_DIR}/
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_BINARY_DIR}/processors ${DEPLOY_DIR}/processors
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${CMAKE_SOURCE_DIR}/installer/overlaier.toml.example ${DEPLOY_DIR}/overlaier.toml
+        ${CMAKE_SOURCE_DIR}/installer/overlAIer.toml.example ${DEPLOY_DIR}/overlAIer.toml
     COMMENT "Deploying to ${DEPLOY_DIR}"
 )
