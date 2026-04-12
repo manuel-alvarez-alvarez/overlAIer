@@ -4,7 +4,7 @@ Documentation=https://github.com/manuel-alvarez-alvarez/overlAIer
 
 [Service]
 Type=simple
-ExecStart=%h/.overlaier/bin/overlAIer
+ExecStart=%h/.overlaier/bin/overlAIer --config %h/.overlaier/overlaier.toml
 EnvironmentFile=-%h/.overlaier/overlaier.env
 Restart=on-failure
 RestartSec=5

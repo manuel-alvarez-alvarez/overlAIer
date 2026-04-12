@@ -1,0 +1,21 @@
+# overlAIer configuration
+# CLI arguments always take precedence over values here.
+# Uncomment and edit the settings you want to change.
+
+# [device]
+# video_in  = "/dev/video0"
+# video_out = "/dev/dri/card0:HDMI-A-2"
+# audio_in  = "hw:0,0"
+# audio_out = "hw:1,0"
+
+# [format]
+# fmt_in  = "NV24"
+# fmt_out = "BG24"
+# res_in  = "1920x1080"
+# res_out = "2560x1440"
+# fps_in  = 60
+# fps_out = 120
+
+# [general]
+# log_level  = "info"
+# async_flip = false

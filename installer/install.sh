@@ -113,7 +113,7 @@ Documentation=https://github.com/manuel-alvarez-alvarez/overlAIer
 
 [Service]
 Type=simple
-ExecStart=%h/.overlaier/bin/overlAIer
+ExecStart=%h/.overlaier/bin/overlAIer --config %h/.overlaier/overlaier.toml
 EnvironmentFile=-%h/.overlaier/overlaier.env
 Restart=on-failure
 RestartSec=5
@@ -141,17 +141,39 @@ RestartSec=5
 WantedBy=default.target
 UNIT
 
+    cat > "$SYSTEMD_DIR/overlaier-config.path" << 'UNIT'
+[Unit]
+Description=Watch overlAIer config for changes
+
+[Path]
+PathChanged=%h/.overlaier/overlaier.toml
+Unit=overlaier-config-reload.service
+
+[Install]
+WantedBy=default.target
+UNIT
+
+    cat > "$SYSTEMD_DIR/overlaier-config-reload.service" << 'UNIT'
+[Unit]
+Description=Restart overlAIer on config change
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl --user restart overlaier.service
+UNIT
+
     systemctl --user daemon-reload
     systemctl --user enable overlaier.service 2>/dev/null || true
     systemctl --user enable overlaier-web.service 2>/dev/null || true
+    systemctl --user enable overlaier-config.path 2>/dev/null || true
+    systemctl --user start overlaier-config.path 2>/dev/null || true
 }
 
 remove_service_units() {
-    systemctl --user stop overlaier.service 2>/dev/null || true
-    systemctl --user stop overlaier-web.service 2>/dev/null || true
-    systemctl --user disable overlaier.service 2>/dev/null || true
-    systemctl --user disable overlaier-web.service 2>/dev/null || true
-    rm -f "$SYSTEMD_DIR/overlaier.service" "$SYSTEMD_DIR/overlaier-web.service"
+    systemctl --user stop overlaier.service overlaier-web.service overlaier-config.path 2>/dev/null || true
+    systemctl --user disable overlaier.service overlaier-web.service overlaier-config.path 2>/dev/null || true
+    rm -f "$SYSTEMD_DIR/overlaier.service" "$SYSTEMD_DIR/overlaier-web.service" \
+          "$SYSTEMD_DIR/overlaier-config.path" "$SYSTEMD_DIR/overlaier-config-reload.service"
     systemctl --user daemon-reload 2>/dev/null || true
 }
 
@@ -198,6 +220,34 @@ do_install() {
     tar xzf "$tmpdir/$tarball" -C "$INSTALL_DIR" --strip-components=1
 
     chmod +x "$BIN_DIR/overlAIer" "$INSTALL_DIR/overlAIer.bin"
+
+    # Install example config if none exists
+    if [ ! -f "$INSTALL_DIR/overlaier.toml" ]; then
+        cat > "$INSTALL_DIR/overlaier.toml" << 'TOML'
+# overlAIer configuration
+# CLI arguments always take precedence over values here.
+# Uncomment and edit the settings you want to change.
+
+# [device]
+# video_in  = "/dev/video0"
+# video_out = "/dev/dri/card0:HDMI-A-2"
+# audio_in  = "hw:0,0"
+# audio_out = "hw:1,0"
+
+# [format]
+# fmt_in  = "NV24"
+# fmt_out = "BG24"
+# res_in  = "1920x1080"
+# res_out = "2560x1440"
+# fps_in  = 60
+# fps_out = 120
+
+# [general]
+# log_level  = "info"
+# async_flip = false
+TOML
+        info "Created default config at $INSTALL_DIR/overlaier.toml"
+    fi
 
     info "Installing systemd services..."
     install_service_units
