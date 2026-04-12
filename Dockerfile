@@ -56,7 +56,7 @@ RUN mkdir -p build/lib && \
         patchelf --set-rpath '$ORIGIN/../lib' "$so" ; \
     done && \
     mv build/overlAIer build/overlAIer.bin && \
-    printf '#!/bin/sh\nSCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"\nexec "$SCRIPT_DIR/lib/ld-linux-aarch64.so.1" "$SCRIPT_DIR/overlAIer.bin" "$@"\n' > build/overlAIer && \
+    printf '#!/bin/sh\nSCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"\nexec "$SCRIPT_DIR/lib/ld-linux-aarch64.so.1" --library-path "$SCRIPT_DIR/lib" "$SCRIPT_DIR/overlAIer.bin" "$@"\n' > build/overlAIer && \
     chmod +x build/overlAIer
 
 # Output stage: just the built artifacts
