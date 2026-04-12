@@ -2,16 +2,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <tomlc17.h>
 #include "config.h"
 #include "log.h"
 
 int ovl_config_default_path(char *buf, int len) {
-    const char *home = getenv("HOME");
-    if (!home)
+    char exe[512];
+    ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    if (n <= 0)
         return -1;
-    int n = snprintf(buf, (size_t)len, "%s/.overlaier/overlaier.toml", home);
-    return (n >= len) ? -1 : 0;
+    exe[n] = '\0';
+    char *slash = strrchr(exe, '/');
+    if (!slash)
+        return -1;
+    int w = snprintf(buf, (size_t)len, "%.*s/overlaier.toml",
+                     (int)(slash - exe), exe);
+    return (w >= len) ? -1 : 0;
 }
 
 static const char *seek_string(toml_datum_t root, const char *key) {
