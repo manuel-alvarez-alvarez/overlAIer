@@ -6,9 +6,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/.overlaier/web
-ExecStart=%h/.overlaier/web/venv/bin/python -m overlaier_web
-EnvironmentFile=-%h/.overlaier/overlaier.env
+WorkingDirectory=%h/.overlAIer/web
+ExecStart=%h/.overlAIer/web/venv/bin/python -m overlaier_web
+EnvironmentFile=-%h/.overlAIer/overlaier.env
 Restart=on-failure
 RestartSec=5
 

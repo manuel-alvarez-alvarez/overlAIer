@@ -2,7 +2,7 @@
 set -eu
 
 REPO="manuel-alvarez-alvarez/overlAIer"
-INSTALL_DIR="$HOME/.overlaier"
+INSTALL_DIR="$HOME/.overlAIer"
 BIN_DIR="$INSTALL_DIR/bin"
 PROCESSORS_DIR="$INSTALL_DIR/processors"
 WEB_DIR="$INSTALL_DIR/web"
@@ -74,7 +74,7 @@ get_latest_version() {
 # ---------------------------------------------------------------------------
 # PATH
 # ---------------------------------------------------------------------------
-PATH_LINE="export PATH=\"\$HOME/.overlaier/bin:\$PATH\" # overlaier"
+PATH_LINE="export PATH=\"\$HOME/.overlAIer/bin:\$PATH\" # overlAIer"
 
 add_to_path() {
     case ":$PATH:" in
@@ -83,7 +83,7 @@ add_to_path() {
 
     for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
         [ -f "$rc" ] || continue
-        if ! grep -qF '# overlaier' "$rc" 2>/dev/null; then
+        if ! grep -qF '# overlAIer' "$rc" 2>/dev/null; then
             printf '\n%s\n' "$PATH_LINE" >> "$rc"
             info "Updated $rc"
         fi
@@ -93,8 +93,8 @@ add_to_path() {
 remove_from_path() {
     for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
         [ -f "$rc" ] || continue
-        if grep -qF '# overlaier' "$rc" 2>/dev/null; then
-            sed -i '/# overlaier/d' "$rc"
+        if grep -qF '# overlAIer' "$rc" 2>/dev/null; then
+            sed -i '/# overlAIer/d' "$rc"
             info "Cleaned $rc"
         fi
     done
@@ -113,8 +113,8 @@ Documentation=https://github.com/manuel-alvarez-alvarez/overlAIer
 
 [Service]
 Type=simple
-ExecStart=%h/.overlaier/bin/overlAIer --config %h/.overlaier/overlAIer.toml
-EnvironmentFile=-%h/.overlaier/overlaier.env
+ExecStart=%h/.overlAIer/bin/overlAIer --config %h/.overlAIer/overlAIer.toml
+EnvironmentFile=-%h/.overlAIer/overlaier.env
 Restart=on-failure
 RestartSec=5
 
@@ -131,9 +131,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/.overlaier/web
-ExecStart=%h/.overlaier/web/venv/bin/python -m overlaier_web
-EnvironmentFile=-%h/.overlaier/overlaier.env
+WorkingDirectory=%h/.overlAIer/web
+ExecStart=%h/.overlAIer/web/venv/bin/python -m overlaier_web
+EnvironmentFile=-%h/.overlAIer/overlaier.env
 Restart=on-failure
 RestartSec=5
 
@@ -146,7 +146,7 @@ UNIT
 Description=Watch overlAIer config for changes
 
 [Path]
-PathChanged=%h/.overlaier/overlAIer.toml
+PathChanged=%h/.overlAIer/overlAIer.toml
 Unit=overlAIer-config-reload.service
 
 [Install]
