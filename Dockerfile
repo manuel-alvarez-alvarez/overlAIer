@@ -44,20 +44,23 @@ RUN mkdir -p build && cd build && \
     cmake --build . -j$(nproc) --target deploy
 
 # Bundle shared library dependencies + dynamic linker for full portability
+# Layout: overlAIer.bin + ld-linux at root, libs in lib/, processors in processors/
+# /proc/self/exe resolves to ld-linux at root, so exe_dir = root, finding processors/ directly
 RUN mkdir -p build/lib && \
     for bin in build/overlAIer build/processors/*.so; do \
         ldd "$bin" 2>/dev/null | awk '/=>/ && !/linux-vdso/ {print $3}' ; \
     done | sort -u | while read -r lib; do \
         cp -L "$lib" build/lib/ ; \
     done && \
-    cp -L /lib/ld-linux-aarch64.so.1 build/lib/ && \
+    cp -L /lib/ld-linux-aarch64.so.1 build/ && \
     patchelf --set-rpath '$ORIGIN/lib' build/overlAIer && \
     for so in build/processors/*.so; do \
         patchelf --set-rpath '$ORIGIN/../lib' "$so" ; \
     done && \
     mv build/overlAIer build/overlAIer.bin && \
-    printf '#!/bin/sh\nSCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"\nexec "$SCRIPT_DIR/lib/ld-linux-aarch64.so.1" --library-path "$SCRIPT_DIR/lib" "$SCRIPT_DIR/overlAIer.bin" "$@"\n' > build/overlAIer && \
-    chmod +x build/overlAIer
+    mkdir -p build/bin && \
+    printf '#!/bin/sh\nDIR="$(cd "$(dirname "$0")/.." && pwd)"\nexec "$DIR/ld-linux-aarch64.so.1" --library-path "$DIR/lib" "$DIR/overlAIer.bin" "$@"\n' > build/bin/overlAIer && \
+    chmod +x build/bin/overlAIer
 
 # Output stage: just the built artifacts
 FROM scratch AS artifacts
