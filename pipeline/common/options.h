@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include "pixfmt.h"
 
+#define OPT_MAX_PROCESSORS 16
+
 enum output_format { FMT_PLAIN, FMT_JSON };
 
 struct options {
@@ -22,6 +24,8 @@ struct options {
     enum output_format out_fmt; // for query command
     int log_level;              // zf_log level, -1 = default
     int async_flip;             // 1 = async page flip (tearing, lower latency)
+    const char *processors[OPT_MAX_PROCESSORS]; // plugin .so paths from config
+    int num_processors;
 };
 
 enum ovl_pixfmt parse_format(const char *s);

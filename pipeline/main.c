@@ -1352,27 +1352,15 @@ static int cmd_run(struct options *opts) {
         struct ovl_processor_mgr *proc_mgr = NULL;
         if (overlay) {
             ovl_processor_mgr_create(&proc_mgr, overlay, &output);
-            // Load .so plugins: try relative to executable, then CWD, then system
-            int loaded = 0;
-            {
-                char exe_path[512];
-                ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-                if (len > 0) {
-                    exe_path[len] = '\0';
-                    char *slash = strrchr(exe_path, '/');
-                    if (slash) {
-                        snprintf(slash + 1, sizeof(exe_path) - (size_t)(slash - exe_path) - 1,
-                                 "processors");
-                        loaded = ovl_processor_mgr_load_dir(proc_mgr, exe_path);
-                    }
+            for (int i = 0; i < opts->num_processors; i++) {
+                if (ovl_processor_mgr_load_file(proc_mgr, opts->processors[i]) < 0) {
+                    ZF_LOGE("failed to load processor '%s', aborting", opts->processors[i]);
+                    ovl_processor_mgr_destroy(proc_mgr);
+                    ovl_drm_output_free(&output);
+                    ovl_converter_destroy(conv);
+                    return -1;
                 }
             }
-            if (loaded == 0)
-                loaded = ovl_processor_mgr_load_dir(proc_mgr, "processors");
-            if (loaded == 0)
-                loaded = ovl_processor_mgr_load_dir(proc_mgr, "/usr/lib/overlaier/processors");
-            if (loaded == 0)
-                ZF_LOGW("no processor plugins found");
             ovl_processor_mgr_start(proc_mgr, actual, cap.width, cap.height);
         }
 

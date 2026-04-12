@@ -103,6 +103,22 @@ int ovl_config_load(const char *path, struct options *opts) {
     if (!opts->async_flip)
         opts->async_flip = seek_bool(root, "general.async_flip", 0);
 
+    // [[processor]] array
+    if (!opts->num_processors) {
+        toml_datum_t parr = toml_get(root, "processor");
+        if (parr.type == TOML_ARRAY) {
+            for (int i = 0; i < parr.u.arr.size && opts->num_processors < OPT_MAX_PROCESSORS; i++) {
+                toml_datum_t entry = parr.u.arr.elem[i];
+                if (entry.type != TOML_TABLE)
+                    continue;
+                toml_datum_t path = toml_get(entry, "path");
+                if (path.type == TOML_STRING) {
+                    opts->processors[opts->num_processors++] = strdup(path.u.s);
+                }
+            }
+        }
+    }
+
     toml_free(res);
     return 0;
 }

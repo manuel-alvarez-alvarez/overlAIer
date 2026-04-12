@@ -245,6 +245,11 @@ do_install() {
 # [general]
 # log_level  = "info"
 # async_flip = false
+
+# Processor plugins to load.
+#
+# [[processor]]
+# path = "/path/to/fps_counter.so"
 TOML
         info "Created default config at $INSTALL_DIR/overlaier.toml"
     fi

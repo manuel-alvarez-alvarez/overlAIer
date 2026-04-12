@@ -207,6 +207,38 @@ int ovl_processor_mgr_load_dir(struct ovl_processor_mgr *mgr, const char *dir) {
     return loaded;
 }
 
+int ovl_processor_mgr_load_file(struct ovl_processor_mgr *mgr, const char *path) {
+    void *handle = dlopen(path, RTLD_NOW);
+    if (!handle) {
+        ZF_LOGE("processor_mgr: failed to load '%s': %s", path, dlerror());
+        return -1;
+    }
+
+    ovl_processor_register_fn reg_fn =
+        (ovl_processor_register_fn)dlsym(handle, OVL_PROCESSOR_EXPORT_SYMBOL);
+    if (!reg_fn) {
+        ZF_LOGE("processor_mgr: '%s' has no %s symbol", path, OVL_PROCESSOR_EXPORT_SYMBOL);
+        dlclose(handle);
+        return -1;
+    }
+
+    const struct ovl_processor_def *def = reg_fn();
+    if (!def || !def->name) {
+        ZF_LOGE("processor_mgr: '%s' returned NULL definition", path);
+        dlclose(handle);
+        return -1;
+    }
+
+    if (ovl_processor_mgr_register(mgr, def) != 0) {
+        dlclose(handle);
+        return -1;
+    }
+
+    mgr->dl_handles[mgr->num_dl_handles++] = handle;
+    ZF_LOGD("processor_mgr: loaded plugin '%s' from %s", def->name, path);
+    return 0;
+}
+
 int ovl_processor_mgr_start(struct ovl_processor_mgr *mgr, enum ovl_pixfmt src_fmt,
                             uint32_t src_width, uint32_t src_height) {
     mgr->src_fmt = src_fmt;

@@ -18,9 +18,10 @@ int ovl_processor_mgr_create(struct ovl_processor_mgr **mgr, struct ovl_overlay 
 // Register a processor definition. Must be called before start.
 int ovl_processor_mgr_register(struct ovl_processor_mgr *mgr, const struct ovl_processor_def *def);
 
-// Load all .so processor plugins from a directory.
+// Load a single .so processor plugin by path.
 // Each .so must export: const struct ovl_processor_def *ovl_processor_register(void);
-int ovl_processor_mgr_load_dir(struct ovl_processor_mgr *mgr, const char *dir);
+// Returns 0 on success, -1 on error.
+int ovl_processor_mgr_load_file(struct ovl_processor_mgr *mgr, const char *path);
 
 // Start all processor threads. Call after capture is initialized.
 // src_fmt/width/height describe the capture frame format.
