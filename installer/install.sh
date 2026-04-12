@@ -197,7 +197,7 @@ do_install() {
     mkdir -p "$BIN_DIR" "$PROCESSORS_DIR" "$INSTALL_DIR/lib" "$WEB_DIR"
     tar xzf "$tmpdir/$tarball" -C "$INSTALL_DIR" --strip-components=1
 
-    chmod +x "$BIN_DIR/overlAIer"
+    chmod +x "$BIN_DIR/overlAIer" "$BIN_DIR/overlAIer.bin"
 
     # Symlinks so the binary finds processors and bundled libs via rpath
     ln -sfn "../processors" "$BIN_DIR/processors"
