@@ -9,7 +9,7 @@ Real-time audio/video overlay processing pipeline. Captures video via V4L2, proc
 - **Native build**: `mkdir build && cd build && cmake .. && cmake --build . --target deploy`
 - **Docker build**: `docker buildx build --target artifacts --output type=local,dest=./dist .`
 - **CI**: GitHub Actions on native aarch64 runner (`ubuntu-24.04-arm`)
-- **Dependencies**: ALSA, libdrm, libyuv, libsamplerate, librga (optional), cairo, pangocairo, libdisplay-info, zf_log (fetched via CMake)
+- **Dependencies**: ALSA, libdrm, libyuv, libsamplerate, librga (optional), cairo, pangocairo, libdisplay-info, zf_log, tomlc17 (fetched via CMake)
 - **Linting**: clang-tidy runs automatically during build; `cmake --build build --target format` to auto-format
 
 The `deploy` target builds the pipeline executable and all processor plugins, copying them to `build/` at the project root:
@@ -17,6 +17,7 @@ The `deploy` target builds the pipeline executable and all processor plugins, co
 ```
 build/
 ├── overlAIer
+├── overlAIer.toml
 └── processors/
     └── fps_counter.so
 ```
@@ -27,7 +28,8 @@ build/
 overlaier/
 ├── CMakeLists.txt                # Top-level, includes pipeline/ and processors/
 ├── Dockerfile                    # aarch64 build container (Debian trixie)
-├── .github/workflows/build.yml   # CI pipeline
+├── .github/workflows/build.yml   # CI build pipeline
+├── .github/workflows/release.yml # Release workflow (manual dispatch, auto-version)
 ├── .clang-format                 # Code style config
 ├── .clang-tidy                   # Static analysis config
 ├── pipeline/                     # Core A/V pipeline
@@ -36,6 +38,8 @@ overlaier/
 │   ├── common/
 │   │   ├── pixfmt.c/h            # Internal pixel format enum + V4L2/DRM/RGA/libyuv mapping
 │   │   ├── edid.c/h              # EDID read/generate/write for HDMI passthrough
+│   │   ├── options.c/h           # CLI options struct + parsing helpers
+│   │   ├── config.c/h            # TOML config file loader (tomlc17)
 │   │   └── log.h                 # Logging (zf_log wrapper)
 │   ├── receiver/
 │   │   ├── v4l2_caps.c/h         # V4L2 device capability query
@@ -56,10 +60,17 @@ overlaier/
 │   └── processor/
 │       ├── processor.h            # Processor plugin interface
 │       └── processor_mgr.c/h     # Plugin loader, per-processor threads, compositor
-└── processors/                   # Processor plugins (built as .so)
-    └── fps_counter/
-        ├── fps_counter.c
-        └── fps_counter.h
+├── processors/                   # Processor plugins (built as .so)
+│   └── fps_counter/
+│       ├── fps_counter.c
+│       └── fps_counter.h
+└── installer/                    # curl|sh installer + systemd units
+    ├── install.sh                # Self-contained installer/uninstaller
+    ├── overlAIer.service         # Systemd user service for the pipeline
+    ├── overlAIer-web.service     # Systemd user service for the web app
+    ├── overlAIer-config.path     # Watches config file, triggers restart
+    ├── overlAIer-config-reload.service  # Oneshot that restarts the service
+    └── overlAIer.toml.example    # Example config file
 ```
 
 ## Architecture
@@ -124,7 +135,7 @@ struct ovl_processor_def {
 };
 ```
 
-Plugin search order: `<executable_dir>/processors/`, `./processors/`, `/usr/lib/overlaier/processors/`.
+Processors are configured explicitly in `overlAIer.toml` via `[[processor]]` entries with a `path` field. The program aborts if any configured processor fails to load.
 
 ### Overlay System (`pipeline/overlay/`)
 
@@ -172,10 +183,13 @@ Query options:
   --format,    -O FORMAT    Output format: plain (default), json
 
 General:
+  --config,    -C PATH      Config file (default: overlAIer.toml next to the binary)
   --log-level, -L LEVEL     verbose, debug, info, warn, error, fatal, none
   --async-flip              Enable async page flip (tearing, lower latency)
   --help,      -h           Show help
 ```
+
+All options can also be set in the TOML config file. CLI arguments always take precedence.
 
 ## Key Design Principles
 
@@ -187,5 +201,6 @@ General:
 - **Optional hardware acceleration**: Rockchip RGA2/RGA3 for conversion when available, software fallback via libyuv
 - **Triple buffering with low latency**: 3 capture buffers, max 1 pending DRM flip
 - **Platform-agnostic**: pure V4L2/DRM/ALSA — no hardware-specific dependencies required
-- **Near-zero logging overhead**: zf_log with compile-time level removal in release builds
-- **Pluggable processors**: `.so` plugins loaded at runtime, each in its own thread
+- **Near-zero logging overhead**: zf_log with compile-time level (INFO in release, VERBOSE in debug)
+- **Pluggable processors**: `.so` plugins configured in TOML and loaded at runtime, each in its own thread
+- **TOML configuration**: all settings in `overlAIer.toml` with CLI override, auto-restart via systemd `.path` watcher

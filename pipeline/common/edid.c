@@ -105,7 +105,7 @@ int ovl_edid_read_drm(const char *drm_device, const char *connector_name, uint8_
                 size_t copy_len = blob->length < max_len ? blob->length : max_len;
                 memcpy(edid, blob->data, copy_len);
                 result = (int)copy_len;
-                ZF_LOGI("edid: read %d bytes from %s", result,
+                ZF_LOGD("edid: read %d bytes from %s", result,
                         connector_name ? connector_name : "first connected");
                 drmModeFreePropertyBlob(blob);
             }
@@ -206,7 +206,7 @@ static void resolve_timing(struct cea_timing *out, uint32_t w, uint32_t h, uint3
     out->v_sync = (uint16_t)cvt.v_sync;
     out->vic = 0;
 
-    ZF_LOGI("edid: CVT-RBv2 timing %ux%u@%u pixclk=%ukHz hblank=%u vblank=%u", w, h, fps,
+    ZF_LOGD("edid: CVT-RBv2 timing %ux%u@%u pixclk=%ukHz hblank=%u vblank=%u", w, h, fps,
             out->pixclk_khz, out->h_blank, out->v_blank);
 }
 
@@ -394,7 +394,7 @@ int ovl_edid_build_passthrough(const uint8_t *src_edid, size_t src_len, const ch
 
     edid_fix_checksum(cea);
 
-    ZF_LOGI("edid: built passthrough EDID '%s' %ux%u@%u (256 bytes)", monitor_name, width, height,
+    ZF_LOGD("edid: built passthrough EDID '%s' %ux%u@%u (256 bytes)", monitor_name, width, height,
             fps);
     return 256;
 }
@@ -421,7 +421,7 @@ int ovl_edid_write_v4l2(const char *v4l2_device, const uint8_t *edid, size_t len
         return -1;
     }
 
-    ZF_LOGI("edid: wrote %zu bytes to %s (%u blocks)", len, v4l2_device, v4l2_edid.blocks);
+    ZF_LOGD("edid: wrote %zu bytes to %s (%u blocks)", len, v4l2_device, v4l2_edid.blocks);
     close(fd);
     return 0;
 }

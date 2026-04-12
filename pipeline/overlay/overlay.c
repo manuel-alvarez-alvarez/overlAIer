@@ -282,7 +282,7 @@ int ovl_overlay_create(struct ovl_overlay **out, uint32_t width, uint32_t height
         }
     }
 
-    ZF_LOGI("overlay: created %ux%u target=%s", width, height, ovl_pixfmt_name(target_fmt));
+    ZF_LOGD("overlay: created %ux%u target=%s", width, height, ovl_pixfmt_name(target_fmt));
     *out = o;
     return 0;
 }

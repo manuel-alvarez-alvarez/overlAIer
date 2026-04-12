@@ -10,6 +10,14 @@ FetchContent_Declare(zf_log
 )
 FetchContent_MakeAvailable(zf_log)
 
+FetchContent_Declare(tomlc17
+    GIT_REPOSITORY https://github.com/cktan/tomlc17.git
+    GIT_TAG        main
+)
+FetchContent_Populate(tomlc17)
+add_library(tomlc17 STATIC ${tomlc17_SOURCE_DIR}/src/tomlc17.c)
+target_include_directories(tomlc17 PUBLIC ${tomlc17_SOURCE_DIR}/src)
+
 find_package(ALSA REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(DRM REQUIRED IMPORTED_TARGET libdrm)
@@ -31,6 +39,8 @@ add_executable(overlAIer
     encoder/drm_output.c
     common/pixfmt.c
     common/edid.c
+    common/options.c
+    common/config.c
     converter/converter.c
     converter/converter_sw.c
     converter/converter_rga.c
@@ -43,12 +53,12 @@ add_executable(overlAIer
 target_include_directories(overlAIer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
 target_include_directories(overlAIer PRIVATE ${LIBYUV_INCLUDE})
-target_link_libraries(overlAIer PRIVATE ALSA::ALSA PkgConfig::DRM ${LIBYUV_LIB} PkgConfig::SAMPLERATE PkgConfig::CAIRO PkgConfig::PANGOCAIRO PkgConfig::DISPLAYINFO zf_log pthread dl)
+target_link_libraries(overlAIer PRIVATE ALSA::ALSA PkgConfig::DRM ${LIBYUV_LIB} PkgConfig::SAMPLERATE PkgConfig::CAIRO PkgConfig::PANGOCAIRO PkgConfig::DISPLAYINFO zf_log tomlc17 pthread dl)
 
 # Log level: VERBOSE in debug, WARN in release (compile-time removal)
 target_compile_definitions(overlAIer PRIVATE
     $<$<CONFIG:Debug>:ZF_LOG_LEVEL=ZF_LOG_VERBOSE>
-    $<$<CONFIG:Release>:ZF_LOG_LEVEL=ZF_LOG_WARN>
+    $<$<CONFIG:Release>:ZF_LOG_LEVEL=ZF_LOG_INFO>
     $<$<CONFIG:RelWithDebInfo>:ZF_LOG_LEVEL=ZF_LOG_INFO>
 )
 

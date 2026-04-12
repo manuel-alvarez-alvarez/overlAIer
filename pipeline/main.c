@@ -8,6 +8,8 @@
 #include <strings.h>
 #include <unistd.h>
 #include "common/pixfmt.h"
+#include "common/options.h"
+#include "common/config.h"
 #include "receiver/receiver.h"
 #include "receiver/alsa_caps.h"
 #include "receiver/v4l2_caps.h"
@@ -48,58 +50,7 @@ static void delay_ms(int ms) {
 
 // --- Common types ---
 
-enum output_format { FMT_PLAIN, FMT_JSON };
-
-struct options {
-    const char *command; // "run", "query"
-    const char *video_in;
-    const char *video_out;
-    const char *audio_in;
-    const char *audio_out;
-    enum ovl_pixfmt fmt_in;
-    enum ovl_pixfmt fmt_out;
-    uint32_t res_in_w, res_in_h;
-    uint32_t fps_in;
-    uint32_t res_out_w, res_out_h;
-    uint32_t fps_out;
-    enum output_format out_fmt; // for query command
-    int log_level;              // zf_log level, -1 = default
-    int async_flip;             // 1 = async page flip (tearing, lower latency)
-};
-
-// --- Parsing helpers ---
-
-static enum ovl_pixfmt parse_format(const char *s) {
-    enum ovl_pixfmt f = ovl_pixfmt_from_str(s);
-    if (f == OVL_PIXFMT_UNKNOWN)
-        ZF_LOGE("Unknown format '%s'", s);
-    return f;
-}
-
-static int parse_resolution(const char *s, uint32_t *w, uint32_t *h) {
-    if (sscanf(s, "%ux%u", w, h) == 2 && *w > 0 && *h > 0)
-        return 0;
-    ZF_LOGE("Invalid resolution '%s' (expected WIDTHxHEIGHT)", s);
-    return -1;
-}
-
-static int parse_log_level(const char *s) {
-    if (strcasecmp(s, "verbose") == 0 || strcasecmp(s, "v") == 0)
-        return ZF_LOG_VERBOSE;
-    if (strcasecmp(s, "debug") == 0 || strcasecmp(s, "d") == 0)
-        return ZF_LOG_DEBUG;
-    if (strcasecmp(s, "info") == 0 || strcasecmp(s, "i") == 0)
-        return ZF_LOG_INFO;
-    if (strcasecmp(s, "warn") == 0 || strcasecmp(s, "w") == 0)
-        return ZF_LOG_WARN;
-    if (strcasecmp(s, "error") == 0 || strcasecmp(s, "e") == 0)
-        return ZF_LOG_ERROR;
-    if (strcasecmp(s, "fatal") == 0 || strcasecmp(s, "f") == 0)
-        return ZF_LOG_FATAL;
-    if (strcasecmp(s, "none") == 0 || strcasecmp(s, "n") == 0)
-        return ZF_LOG_NONE;
-    return -1;
-}
+// --- Parsing helpers in common/options.c ---
 
 static void print_usage(const char *prog) {
     fprintf(
@@ -131,6 +82,7 @@ static void print_usage(const char *prog) {
         "  --format,    -O FORMAT    Output format: plain (default), json\n"
         "\n"
         "General:\n"
+        "  --config,    -C PATH      Config file (default: overlAIer.toml next to the binary)\n"
         "  --log-level, -L LEVEL     Log level: verbose, debug, info, warn, error, fatal, none\n"
         "  --async-flip              Enable async page flip (tearing, lower latency)\n"
         "  --help,      -h           Show this help\n",
@@ -166,6 +118,7 @@ static int parse_args(int argc, char *argv[], struct options *opts) {
         {"res-out", required_argument, NULL, 's'},
         {"fps-out", required_argument, NULL, 'S'},
         {"format", required_argument, NULL, 'O'},
+        {"config", required_argument, NULL, 'C'},
         {"log-level", required_argument, NULL, 'L'},
         {"async-flip", no_argument, NULL, 'T'},
         {"help", no_argument, NULL, 'h'},
@@ -175,7 +128,7 @@ static int parse_args(int argc, char *argv[], struct options *opts) {
     optind = 1;
     int c;
     opts->log_level = -1; // default: don't change
-    while ((c = getopt_long(argc, argv, "i:o:a:A:f:F:r:R:s:S:O:L:Th", long_opts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "i:o:a:A:f:F:r:R:s:S:O:C:L:Th", long_opts, NULL)) != -1) {
         switch (c) {
         case 'i':
             opts->video_in = optarg;
@@ -254,6 +207,9 @@ static int parse_args(int argc, char *argv[], struct options *opts) {
                 ZF_LOGE("Invalid format '%s' (use plain or json)", optarg);
                 return -1;
             }
+            break;
+        case 'C':
+            opts->config_path = optarg;
             break;
         case 'L':
             opts->log_level = parse_log_level(optarg);
@@ -956,7 +912,7 @@ static void *audio_thread_fn(void *arg) {
     long buf_size = (long)ovl_alsa_playback_buffer_size(ctx->playback);
     long target_fill = buf_size / 2; // aim for half-full
 
-    ZF_LOGI("audio: adaptive resampling, target fill=%ld/%ld", target_fill, buf_size);
+    ZF_LOGD("audio: adaptive resampling, target fill=%ld/%ld", target_fill, buf_size);
 
     int audio_errors = 0;
     while (running && !signal_lost) {
@@ -1283,7 +1239,7 @@ static int cmd_run(struct options *opts) {
         ZF_LOGI("output=%s plane=%s", ovl_pixfmt_name(neg.fmt),
                 neg.use_primary ? "primary" : "overlay");
         if (neg.needs_conversion)
-            ZF_LOGI("converter=%s -> %s", ovl_pixfmt_name(actual), ovl_pixfmt_name(neg.fmt));
+            ZF_LOGD("converter=%s -> %s", ovl_pixfmt_name(actual), ovl_pixfmt_name(neg.fmt));
 
         // --- Converter ---
         struct ovl_converter *conv = NULL;
@@ -1305,7 +1261,7 @@ static int cmd_run(struct options *opts) {
                 delay_ms(REINIT_DELAY_MS);
                 continue;
             }
-            ZF_LOGI("backend=%s", ovl_converter_backend_name(conv));
+            ZF_LOGD("backend=%s", ovl_converter_backend_name(conv));
         }
 
         // --- DRM output ---
@@ -1327,7 +1283,7 @@ static int cmd_run(struct options *opts) {
         }
         if (opts->async_flip && output.async_supported) {
             output.async_flip = 1;
-            ZF_LOGI("async page flip enabled (may cause tearing)");
+            ZF_LOGD("async page flip enabled (may cause tearing)");
         } else if (opts->async_flip) {
             ZF_LOGW("async flip requested but not supported; using vsync");
             output.async_flip = 0;
@@ -1396,27 +1352,15 @@ static int cmd_run(struct options *opts) {
         struct ovl_processor_mgr *proc_mgr = NULL;
         if (overlay) {
             ovl_processor_mgr_create(&proc_mgr, overlay, &output);
-            // Load .so plugins: try relative to executable, then CWD, then system
-            int loaded = 0;
-            {
-                char exe_path[512];
-                ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-                if (len > 0) {
-                    exe_path[len] = '\0';
-                    char *slash = strrchr(exe_path, '/');
-                    if (slash) {
-                        snprintf(slash + 1, sizeof(exe_path) - (size_t)(slash - exe_path) - 1,
-                                 "processors");
-                        loaded = ovl_processor_mgr_load_dir(proc_mgr, exe_path);
-                    }
+            for (int i = 0; i < opts->num_processors; i++) {
+                if (ovl_processor_mgr_load_file(proc_mgr, opts->processors[i]) < 0) {
+                    ZF_LOGE("failed to load processor '%s', aborting", opts->processors[i]);
+                    ovl_processor_mgr_destroy(proc_mgr);
+                    ovl_drm_output_free(&output);
+                    ovl_converter_destroy(conv);
+                    return -1;
                 }
             }
-            if (loaded == 0)
-                loaded = ovl_processor_mgr_load_dir(proc_mgr, "processors");
-            if (loaded == 0)
-                loaded = ovl_processor_mgr_load_dir(proc_mgr, "/usr/lib/overlaier/processors");
-            if (loaded == 0)
-                ZF_LOGW("no processor plugins found");
             ovl_processor_mgr_start(proc_mgr, actual, cap.width, cap.height);
         }
 
@@ -1518,6 +1462,21 @@ int main(int argc, char *argv[]) {
     struct options opts;
     if (parse_args(argc, argv, &opts) < 0)
         return 1;
+
+    // Load TOML config — CLI values already in opts take precedence
+    char cfgbuf[512];
+    const char *cfg_path = opts.config_path;
+    if (!cfg_path) {
+        if (ovl_config_default_path(cfgbuf, sizeof(cfgbuf)) == 0)
+            cfg_path = cfgbuf;
+    }
+    if (cfg_path) {
+        int rc = ovl_config_load(cfg_path, &opts);
+        if (rc < 0)
+            return 1;
+        if (rc == 0)
+            ZF_LOGI("loaded config from %s", cfg_path);
+    }
 
     if (opts.log_level >= 0)
         zf_log_set_output_level(opts.log_level);

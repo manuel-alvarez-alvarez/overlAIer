@@ -15,17 +15,29 @@ Captures HDMI video and audio via V4L2, passes it through to a display via DRM/K
 - **Auto-detection**: finds V4L2 capture, DRM output, and ALSA endpoints automatically
 - **Optional RGA acceleration**: Rockchip RGA2/RGA3 hardware conversion when available, falls back to software (libyuv)
 
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/manuel-alvarez-alvarez/overlAIer/master/installer/install.sh | sh
+```
+
+Installs to `~/.overlAIer/` with bundled shared libraries (no system dependencies needed). Includes systemd user services and a config file watcher that auto-restarts on config changes.
+
+To update an existing installation, run the same command. To uninstall:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/manuel-alvarez-alvarez/overlAIer/master/installer/install.sh | sh -s -- --uninstall
+```
+
 ## Quick Start
 
 ### Prerequisites
 
-Linux system with:
+Linux aarch64 system with:
 - V4L2 capture device (e.g. HDMI capture card, USB capture)
 - DRM/KMS display output
-- Packages: `libasound2`, `libdrm`, `libcairo2`, `libpangocairo-1.0`, `libsamplerate0`, `libdisplay-info`
-- Optional: `librga` (Rockchip RGA hardware acceleration)
 
-### Build
+### Build from source
 
 ```bash
 # On the target device or via Docker
@@ -63,6 +75,7 @@ docker buildx build --target artifacts --output type=local,dest=./dist .
 
 | Option | Description |
 |--------|-------------|
+| `--config PATH` | Config file (default: `overlAIer.toml` next to the binary) |
 | `--res WxH` | Resolution for input and output |
 | `--fps N` | Framerate for input and output |
 | `--video-out DEV:CON` | DRM device and connector (e.g. `/dev/dri/card0:HDMI-A-2`) |
@@ -70,6 +83,27 @@ docker buildx build --target artifacts --output type=local,dest=./dist .
 | `--async-flip` | Lower latency page flips (may tear) |
 
 Use `--res-in`/`--res-out` and `--fps-in`/`--fps-out` to set input and output independently.
+
+### Configuration
+
+Settings can be defined in a TOML config file (`overlAIer.toml`). By default, the binary looks for it next to itself. CLI arguments always take precedence.
+
+```toml
+[device]
+video_out = "/dev/dri/card0:HDMI-A-2"
+
+[format]
+res_out = "2560x1440"
+fps_out = 120
+
+[general]
+log_level = "info"
+
+[[processor]]
+path = "/path/to/fps_counter.so"
+```
+
+When installed via the installer, the systemd service passes `--config ~/.overlAIer/overlAIer.toml` explicitly. A `.path` unit watches the config file and auto-restarts the service on changes.
 
 ## Writing a Processor Plugin
 

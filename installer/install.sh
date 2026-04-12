@@ -2,7 +2,7 @@
 set -eu
 
 REPO="manuel-alvarez-alvarez/overlAIer"
-INSTALL_DIR="$HOME/.overlaier"
+INSTALL_DIR="$HOME/.overlAIer"
 BIN_DIR="$INSTALL_DIR/bin"
 PROCESSORS_DIR="$INSTALL_DIR/processors"
 WEB_DIR="$INSTALL_DIR/web"
@@ -74,7 +74,7 @@ get_latest_version() {
 # ---------------------------------------------------------------------------
 # PATH
 # ---------------------------------------------------------------------------
-PATH_LINE="export PATH=\"\$HOME/.overlaier/bin:\$PATH\" # overlaier"
+PATH_LINE="export PATH=\"\$HOME/.overlAIer/bin:\$PATH\" # overlAIer"
 
 add_to_path() {
     case ":$PATH:" in
@@ -83,7 +83,7 @@ add_to_path() {
 
     for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
         [ -f "$rc" ] || continue
-        if ! grep -qF '# overlaier' "$rc" 2>/dev/null; then
+        if ! grep -qF '# overlAIer' "$rc" 2>/dev/null; then
             printf '\n%s\n' "$PATH_LINE" >> "$rc"
             info "Updated $rc"
         fi
@@ -93,8 +93,8 @@ add_to_path() {
 remove_from_path() {
     for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
         [ -f "$rc" ] || continue
-        if grep -qF '# overlaier' "$rc" 2>/dev/null; then
-            sed -i '/# overlaier/d' "$rc"
+        if grep -qF '# overlAIer' "$rc" 2>/dev/null; then
+            sed -i '/# overlAIer/d' "$rc"
             info "Cleaned $rc"
         fi
     done
@@ -106,15 +106,15 @@ remove_from_path() {
 install_service_units() {
     mkdir -p "$SYSTEMD_DIR"
 
-    cat > "$SYSTEMD_DIR/overlaier.service" << 'UNIT'
+    cat > "$SYSTEMD_DIR/overlAIer.service" << 'UNIT'
 [Unit]
 Description=OverlAIer - Real-time HDMI overlay pipeline
 Documentation=https://github.com/manuel-alvarez-alvarez/overlAIer
 
 [Service]
 Type=simple
-ExecStart=%h/.overlaier/bin/overlAIer
-EnvironmentFile=-%h/.overlaier/overlaier.env
+ExecStart=%h/.overlAIer/bin/overlAIer --config %h/.overlAIer/overlAIer.toml
+EnvironmentFile=-%h/.overlAIer/overlaier.env
 Restart=on-failure
 RestartSec=5
 
@@ -122,7 +122,7 @@ RestartSec=5
 WantedBy=default.target
 UNIT
 
-    cat > "$SYSTEMD_DIR/overlaier-web.service" << 'UNIT'
+    cat > "$SYSTEMD_DIR/overlAIer-web.service" << 'UNIT'
 [Unit]
 Description=OverlAIer Web Interface
 Documentation=https://github.com/manuel-alvarez-alvarez/overlAIer
@@ -131,9 +131,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/.overlaier/web
-ExecStart=%h/.overlaier/web/venv/bin/python -m overlaier_web
-EnvironmentFile=-%h/.overlaier/overlaier.env
+WorkingDirectory=%h/.overlAIer/web
+ExecStart=%h/.overlAIer/web/venv/bin/python -m overlaier_web
+EnvironmentFile=-%h/.overlAIer/overlaier.env
 Restart=on-failure
 RestartSec=5
 
@@ -141,17 +141,39 @@ RestartSec=5
 WantedBy=default.target
 UNIT
 
+    cat > "$SYSTEMD_DIR/overlAIer-config.path" << 'UNIT'
+[Unit]
+Description=Watch overlAIer config for changes
+
+[Path]
+PathChanged=%h/.overlAIer/overlAIer.toml
+Unit=overlAIer-config-reload.service
+
+[Install]
+WantedBy=default.target
+UNIT
+
+    cat > "$SYSTEMD_DIR/overlAIer-config-reload.service" << 'UNIT'
+[Unit]
+Description=Restart overlAIer on config change
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl --user restart overlAIer.service
+UNIT
+
     systemctl --user daemon-reload
-    systemctl --user enable overlaier.service 2>/dev/null || true
-    systemctl --user enable overlaier-web.service 2>/dev/null || true
+    systemctl --user enable overlAIer.service 2>/dev/null || true
+    systemctl --user enable overlAIer-web.service 2>/dev/null || true
+    systemctl --user enable overlAIer-config.path 2>/dev/null || true
+    systemctl --user start overlAIer-config.path 2>/dev/null || true
 }
 
 remove_service_units() {
-    systemctl --user stop overlaier.service 2>/dev/null || true
-    systemctl --user stop overlaier-web.service 2>/dev/null || true
-    systemctl --user disable overlaier.service 2>/dev/null || true
-    systemctl --user disable overlaier-web.service 2>/dev/null || true
-    rm -f "$SYSTEMD_DIR/overlaier.service" "$SYSTEMD_DIR/overlaier-web.service"
+    systemctl --user stop overlAIer.service overlAIer-web.service overlAIer-config.path 2>/dev/null || true
+    systemctl --user disable overlAIer.service overlAIer-web.service overlAIer-config.path 2>/dev/null || true
+    rm -f "$SYSTEMD_DIR/overlAIer.service" "$SYSTEMD_DIR/overlAIer-web.service" \
+          "$SYSTEMD_DIR/overlAIer-config.path" "$SYSTEMD_DIR/overlAIer-config-reload.service"
     systemctl --user daemon-reload 2>/dev/null || true
 }
 
@@ -190,6 +212,12 @@ do_install() {
     tmpdir="$(mktemp -d)"
     trap 'rm -rf "$tmpdir"' EXIT
 
+    # Stop running service before updating binaries
+    if systemctl --user is-active overlAIer.service >/dev/null 2>&1; then
+        info "Stopping running service..."
+        systemctl --user stop overlAIer.service 2>/dev/null || true
+    fi
+
     info "Downloading $tarball..."
     fetch "$url" "$tmpdir/$tarball"
 
@@ -199,6 +227,39 @@ do_install() {
 
     chmod +x "$BIN_DIR/overlAIer" "$INSTALL_DIR/overlAIer.bin"
 
+    # Install example config if none exists
+    if [ ! -f "$INSTALL_DIR/overlAIer.toml" ]; then
+        cat > "$INSTALL_DIR/overlAIer.toml" << 'TOML'
+# overlAIer configuration
+# CLI arguments always take precedence over values here.
+# Uncomment and edit the settings you want to change.
+
+# [device]
+# video_in  = "/dev/video0"
+# video_out = "/dev/dri/card0:HDMI-A-2"
+# audio_in  = "hw:0,0"
+# audio_out = "hw:1,0"
+
+# [format]
+# fmt_in  = "NV24"
+# fmt_out = "BG24"
+# res_in  = "1920x1080"
+# res_out = "2560x1440"
+# fps_in  = 60
+# fps_out = 120
+
+# [general]
+# log_level  = "info"
+# async_flip = false
+
+# Processor plugins to load.
+#
+# [[processor]]
+# path = "/path/to/fps_counter.so"
+TOML
+        info "Created default config at $INSTALL_DIR/overlAIer.toml"
+    fi
+
     info "Installing systemd services..."
     install_service_units
 
@@ -207,12 +268,18 @@ do_install() {
 
     setup_web_venv
 
+    # Restart service if it was enabled
+    if systemctl --user is-enabled overlAIer.service >/dev/null 2>&1; then
+        info "Starting service..."
+        systemctl --user start overlAIer.service 2>/dev/null || true
+    fi
+
     printf "\n"
     success "overlAIer ${version} installed successfully!"
     printf "\n"
     info "Binary:     $BIN_DIR/overlAIer"
     info "Processors: $PROCESSORS_DIR/"
-    info "Config:     $INSTALL_DIR/overlaier.env (create to set environment)"
+    info "Config:     $INSTALL_DIR/overlAIer.toml"
     info "Services:   systemctl --user start overlaier"
     printf "\n"
     warn "Restart your shell or run:  source ~/.bashrc"
