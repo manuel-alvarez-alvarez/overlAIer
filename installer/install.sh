@@ -167,6 +167,68 @@ UNIT
     systemctl --user enable overlAIer-web.service 2>/dev/null || true
     systemctl --user enable overlAIer-config.path 2>/dev/null || true
     systemctl --user start overlAIer-config.path 2>/dev/null || true
+
+    # --- System-level service (for USB proxy, needs root for ConfigFS) ---
+    SYSTEM_SYSTEMD_DIR="/etc/systemd/system"
+    UDEV_RULES_DIR="/etc/udev/rules.d"
+
+    if [ -w /etc/systemd/system ] || [ "$(id -u)" = "0" ]; then
+        cat > "$SYSTEM_SYSTEMD_DIR/overlAIer-system.service" << SYSUNIT
+[Unit]
+Description=OverlAIer - Real-time HDMI overlay pipeline (system)
+Documentation=https://github.com/manuel-alvarez-alvarez/overlAIer
+After=local-fs.target
+
+[Service]
+Type=simple
+User=$USER
+ExecStart=$INSTALL_DIR/bin/overlAIer --config $INSTALL_DIR/overlAIer.toml
+Restart=on-failure
+RestartSec=5
+# Required for USB proxy (ConfigFS, hidraw, evdev grab)
+AmbientCapabilities=CAP_SYS_ADMIN CAP_SYS_RAWIO
+SupplementaryGroups=input
+
+[Install]
+WantedBy=multi-user.target
+SYSUNIT
+
+        cat > "$SYSTEM_SYSTEMD_DIR/overlAIer-system-config.path" << SYSPATH
+[Unit]
+Description=Watch overlAIer config for changes (system)
+
+[Path]
+PathChanged=$INSTALL_DIR/overlAIer.toml
+Unit=overlAIer-system-config-reload.service
+
+[Install]
+WantedBy=multi-user.target
+SYSPATH
+
+        cat > "$SYSTEM_SYSTEMD_DIR/overlAIer-system-config-reload.service" << SYSRELOAD
+[Unit]
+Description=Restart overlAIer system service on config change
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl restart overlAIer-system.service
+SYSRELOAD
+
+        systemctl daemon-reload 2>/dev/null || true
+        info "Installed system service: overlAIer-system.service"
+        info "Enable with: sudo systemctl enable --now overlAIer-system.service"
+    fi
+
+    # --- udev rules for non-root access to hidraw/hidg/evdev ---
+    if [ -w "$UDEV_RULES_DIR" ] || [ "$(id -u)" = "0" ]; then
+        cat > "$UDEV_RULES_DIR/99-overlAIer.rules" << 'RULES'
+# overlAIer: grant input group access to HID and gadget devices
+SUBSYSTEM=="hidraw", MODE="0660", GROUP="input"
+KERNEL=="hidg*", MODE="0660", GROUP="input"
+RULES
+        udevadm control --reload-rules 2>/dev/null || true
+        info "Installed udev rules: $UDEV_RULES_DIR/99-overlAIer.rules"
+    fi
 }
 
 remove_service_units() {
@@ -175,6 +237,20 @@ remove_service_units() {
     rm -f "$SYSTEMD_DIR/overlAIer.service" "$SYSTEMD_DIR/overlAIer-web.service" \
           "$SYSTEMD_DIR/overlAIer-config.path" "$SYSTEMD_DIR/overlAIer-config-reload.service"
     systemctl --user daemon-reload 2>/dev/null || true
+
+    # System-level cleanup
+    if [ -w /etc/systemd/system ] || [ "$(id -u)" = "0" ]; then
+        systemctl stop overlAIer-system.service overlAIer-system-config.path 2>/dev/null || true
+        systemctl disable overlAIer-system.service overlAIer-system-config.path 2>/dev/null || true
+        rm -f /etc/systemd/system/overlAIer-system.service \
+              /etc/systemd/system/overlAIer-system-config.path \
+              /etc/systemd/system/overlAIer-system-config-reload.service
+        systemctl daemon-reload 2>/dev/null || true
+    fi
+    if [ -w /etc/udev/rules.d ] || [ "$(id -u)" = "0" ]; then
+        rm -f /etc/udev/rules.d/99-overlAIer.rules
+        udevadm control --reload-rules 2>/dev/null || true
+    fi
 }
 
 # ---------------------------------------------------------------------------
