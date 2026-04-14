@@ -19,6 +19,8 @@
 #include "converter/converter.h"
 #include "overlay/overlay.h"
 #include "processor/processor_mgr.h"
+#include "usb_proxy/usb_proxy.h"
+#include "usb_proxy/usb_caps.h"
 #include "receiver/alsa_capture.h"
 #include "encoder/alsa_playback.h"
 #include "common/edid.h"
@@ -81,6 +83,9 @@ static void print_usage(const char *prog) {
         "Query options:\n"
         "  --format,    -O FORMAT    Output format: plain (default), json\n"
         "\n"
+        "USB proxy options (run):\n"
+        "  --usb-device VID:PID      Proxy a USB HID device (repeatable)\n"
+        "\n"
         "General:\n"
         "  --config,    -C PATH      Config file (default: overlAIer.toml next to the binary)\n"
         "  --log-level, -L LEVEL     Log level: verbose, debug, info, warn, error, fatal, none\n"
@@ -120,6 +125,7 @@ static int parse_args(int argc, char *argv[], struct options *opts) {
         {"format", required_argument, NULL, 'O'},
         {"config", required_argument, NULL, 'C'},
         {"log-level", required_argument, NULL, 'L'},
+        {"usb-device", required_argument, NULL, 4},
         {"async-flip", no_argument, NULL, 'T'},
         {"help", no_argument, NULL, 'h'},
         {NULL, 0, NULL, 0},
@@ -207,6 +213,10 @@ static int parse_args(int argc, char *argv[], struct options *opts) {
                 ZF_LOGE("Invalid format '%s' (use plain or json)", optarg);
                 return -1;
             }
+            break;
+        case 4: // --usb-device
+            if (opts->num_usb_devices < OPT_MAX_USB_DEVICES)
+                opts->usb_devices[opts->num_usb_devices++] = optarg;
             break;
         case 'C':
             opts->config_path = optarg;
@@ -553,6 +563,21 @@ static int cmd_query(struct options *opts) {
             }
             printf("]}%s\n", i + 1 < nconv ? "," : "");
         }
+        printf("  ],\n");
+
+        // USB HID devices
+        printf("  \"usb_hid\": [\n");
+        struct ovl_usb_hid_info usb_devs[OVL_USB_MAX_DEVICES];
+        int nusb = ovl_usb_enum_hid_devices(usb_devs, OVL_USB_MAX_DEVICES);
+        for (int i = 0; i < nusb; i++) {
+            struct ovl_usb_hid_info *u = &usb_devs[i];
+            const char *type = u->protocol == 1 ? "keyboard" :
+                               u->protocol == 2 ? "mouse" : "other";
+            printf("    {\"name\": \"%s\", \"hidraw\": \"%s\", "
+                   "\"vid_pid\": \"%04x:%04x\", \"type\": \"%s\"}%s\n",
+                   u->name, u->hidraw, u->vid, u->pid, type,
+                   i + 1 < nusb ? "," : "");
+        }
         printf("  ]\n");
 
         printf("}\n");
@@ -628,6 +653,21 @@ static int cmd_query(struct options *opts) {
             if (ci->supports_rotate)
                 printf(" rotate");
             printf("\n\n");
+        }
+
+        // USB HID devices
+        printf("=== USB HID Devices ===\n\n");
+        struct ovl_usb_hid_info usb_devs_plain[OVL_USB_MAX_DEVICES];
+        int nusb_plain = ovl_usb_enum_hid_devices(usb_devs_plain, OVL_USB_MAX_DEVICES);
+        if (nusb_plain == 0) {
+            printf("(none found)\n\n");
+        }
+        for (int i = 0; i < nusb_plain; i++) {
+            struct ovl_usb_hid_info *u = &usb_devs_plain[i];
+            const char *type = u->protocol == 1 ? "keyboard" :
+                               u->protocol == 2 ? "mouse" : "gamepad/other";
+            printf("[%s] %04x:%04x — %s (/dev/%s)\n",
+                   type, u->vid, u->pid, u->name, u->hidraw);
         }
     }
 
@@ -1100,6 +1140,17 @@ static int cmd_run(struct options *opts) {
     uint64_t total_frames = 0;
     int edid_written = 0;
 
+    // --- USB HID proxy (independent of video signal) ---
+    struct ovl_usb_proxy *usb_proxy = NULL;
+    if (opts->num_usb_devices > 0) {
+        if (ovl_usb_proxy_init(&usb_proxy, opts->usb_udc,
+                               opts->usb_devices, opts->num_usb_devices, NULL) < 0) {
+            ZF_LOGE("usb proxy init failed");
+            return 1;
+        }
+        ovl_usb_proxy_start(usb_proxy);
+    }
+
     // === Main loop: init → stream → teardown → repeat on signal change ===
     while (running) {
         signal_lost = 0;
@@ -1482,6 +1533,8 @@ static int cmd_run(struct options *opts) {
             continue; // restart the main loop
         }
     }
+
+    ovl_usb_proxy_destroy(usb_proxy);
 
     ZF_LOGI("stopped, total frames: %llu", (unsigned long long)total_frames);
     return 0;

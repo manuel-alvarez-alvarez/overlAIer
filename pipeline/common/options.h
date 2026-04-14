@@ -4,7 +4,8 @@
 #include <stdint.h>
 #include "pixfmt.h"
 
-#define OPT_MAX_PROCESSORS 16
+#define OPT_MAX_PROCESSORS  16
+#define OPT_MAX_USB_DEVICES 16
 
 enum output_format { FMT_PLAIN, FMT_JSON };
 
@@ -26,6 +27,9 @@ struct options {
     int async_flip;             // 1 = async page flip (tearing, lower latency)
     const char *processors[OPT_MAX_PROCESSORS]; // plugin .so paths from config
     int num_processors;
+    const char *usb_udc;                           // UDC controller (NULL = auto)
+    const char *usb_devices[OPT_MAX_USB_DEVICES];  // VID:PID strings
+    int num_usb_devices;
 };
 
 enum ovl_pixfmt parse_format(const char *s);

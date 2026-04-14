@@ -37,6 +37,13 @@ void ovl_processor_mgr_post_frame(struct ovl_processor_mgr *mgr, const void *fra
 void ovl_processor_mgr_notify_flip(struct ovl_processor_mgr *mgr,
                                    const struct ovl_frame_info *info);
 
+// Process a raw HID report through all processors in chain order.
+// Processors can modify the report in-place or drop it.
+// Returns 0 if the report should be forwarded, -1 if dropped.
+int ovl_processor_mgr_process_hid(struct ovl_processor_mgr *mgr,
+                                  uint8_t *report, int *report_len,
+                                  const char *device_name, uint16_t vid, uint16_t pid);
+
 // Stop all processor threads and free resources.
 void ovl_processor_mgr_destroy(struct ovl_processor_mgr *mgr);
 
