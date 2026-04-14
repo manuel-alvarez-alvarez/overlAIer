@@ -2,6 +2,7 @@
 #include "usb_caps.h"
 #include "gadget_configfs.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/input.h>
