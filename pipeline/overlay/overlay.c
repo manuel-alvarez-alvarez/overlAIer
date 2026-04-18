@@ -161,7 +161,7 @@ static void render_text(struct ovl_overlay *o, cairo_t *cr, const struct ovl_pri
 
     PangoLayout *layout = pango_cairo_create_layout(cr);
     pango_layout_set_font_description(layout, o->cached_font_desc);
-    pango_layout_set_text(layout, p->text.text, -1);
+    pango_layout_set_text(layout, p->text.text ? p->text.text : "", -1);
 
     cairo_set_source_rgba(cr, p->fill.r, p->fill.g, p->fill.b, p->fill.a);
     cairo_move_to(cr, nx(o, p->text.x), ny(o, p->text.y));
