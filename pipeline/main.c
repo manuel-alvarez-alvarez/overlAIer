@@ -1151,6 +1151,7 @@ static int cmd_run(struct options *opts) {
         if (ovl_usb_proxy_init(&usb_proxy, opts->usb_udc,
                                opts->usb_devices, opts->num_usb_devices, NULL) < 0) {
             ZF_LOGE("usb proxy init failed");
+            ovl_usb_exit();
             return 1;
         }
         ovl_usb_proxy_start(usb_proxy);

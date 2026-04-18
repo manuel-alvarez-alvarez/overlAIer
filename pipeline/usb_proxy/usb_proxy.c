@@ -23,6 +23,7 @@ struct proxy_device {
     int hidg_fd;            // /dev/hidgN (gadget output)
     int index;              // gadget function index
     pthread_t thread;
+    int thread_started;     // 1 if pthread_create succeeded
     volatile int running;
     struct ovl_processor_mgr *proc_mgr;
 };
@@ -231,7 +232,8 @@ int ovl_usb_proxy_start(struct ovl_usb_proxy *proxy) {
         if (!dev->handle || dev->hidg_fd < 0)
             continue;
         dev->running = 1;
-        pthread_create(&dev->thread, NULL, proxy_thread_fn, dev);
+        if (pthread_create(&dev->thread, NULL, proxy_thread_fn, dev) == 0)
+            dev->thread_started = 1;
     }
     return 0;
 }
@@ -247,7 +249,7 @@ void ovl_usb_proxy_stop(struct ovl_usb_proxy *proxy) {
     // Threads will exit on next libusb_interrupt_transfer timeout
     for (int i = 0; i < proxy->num_devices; i++) {
         struct proxy_device *dev = &proxy->devices[i];
-        if (dev->thread)
+        if (dev->thread_started)
             pthread_join(dev->thread, NULL);
     }
 }

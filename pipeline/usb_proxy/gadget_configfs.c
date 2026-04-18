@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -16,6 +17,12 @@
 
 static char saved_udc[128];
 static int num_hid_functions;
+static int gadget_active;
+
+static void gadget_atexit(void) {
+    if (gadget_active)
+        ovl_gadget_destroy();
+}
 
 static int write_file(const char *path, const void *data, int len) {
     int fd = open(path, O_WRONLY);
@@ -102,6 +109,8 @@ int ovl_gadget_create(const char *udc) {
     write_string(GADGET_PATH "/configs/c.1/MaxPower", "100");
 
     num_hid_functions = 0;
+    gadget_active = 1;
+    atexit(gadget_atexit);
     return 0;
 }
 
@@ -179,5 +188,6 @@ void ovl_gadget_destroy(void) {
     rmdir(GADGET_PATH "/strings/0x409");
     rmdir(GADGET_PATH);
     num_hid_functions = 0;
+    gadget_active = 0;
     ZF_LOGD("gadget: destroyed");
 }
