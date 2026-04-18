@@ -126,15 +126,17 @@ int ovl_gadget_add_hid(int index, const void *report_desc, int desc_len,
 
     char path[512];
 
-    // Use protocol=0, subclass=0 for all devices — let the report descriptor
-    // define the device capabilities. Setting subclass=1 (boot interface) causes
-    // Windows to expect the simplified boot protocol format which conflicts with
-    // the full report descriptor.
+    // Set HID protocol and subclass.
+    // For boot keyboard (1) and boot mouse (2), use subclass=1 (boot interface)
+    // with the matching protocol so Windows handles SET_PROTOCOL correctly.
+    // For other devices (gamepads), use subclass=0/protocol=0.
     snprintf(path, sizeof(path), "%s/protocol", func_path);
-    write_string(path, "0");
+    char proto_str[8];
+    snprintf(proto_str, sizeof(proto_str), "%d", (protocol == 1 || protocol == 2) ? protocol : 0);
+    write_string(path, proto_str);
 
     snprintf(path, sizeof(path), "%s/subclass", func_path);
-    write_string(path, "0");
+    write_string(path, (protocol == 1 || protocol == 2) ? "1" : "0");
 
     snprintf(path, sizeof(path), "%s/report_length", func_path);
     char rlen_str[16];
