@@ -117,13 +117,15 @@ int ovl_gadget_add_hid(int index, const void *report_desc, int desc_len,
 
     char path[512];
 
+    // Use protocol=0, subclass=0 for all devices — let the report descriptor
+    // define the device capabilities. Setting subclass=1 (boot interface) causes
+    // Windows to expect the simplified boot protocol format which conflicts with
+    // the full report descriptor.
     snprintf(path, sizeof(path), "%s/protocol", func_path);
-    char proto_str[8];
-    snprintf(proto_str, sizeof(proto_str), "%d", protocol);
-    write_string(path, proto_str);
+    write_string(path, "0");
 
     snprintf(path, sizeof(path), "%s/subclass", func_path);
-    write_string(path, protocol > 0 ? "1" : "0"); // boot interface for kb/mouse
+    write_string(path, "0");
 
     snprintf(path, sizeof(path), "%s/report_length", func_path);
     char rlen_str[16];
