@@ -28,6 +28,7 @@ pkg_check_modules(SAMPLERATE REQUIRED IMPORTED_TARGET samplerate)
 pkg_check_modules(CAIRO REQUIRED IMPORTED_TARGET cairo)
 pkg_check_modules(PANGOCAIRO REQUIRED IMPORTED_TARGET pangocairo)
 pkg_check_modules(DISPLAYINFO REQUIRED IMPORTED_TARGET libdisplay-info)
+pkg_check_modules(HIDAPI REQUIRED IMPORTED_TARGET hidapi-hidraw)
 
 add_executable(overlAIer
     main.c
@@ -56,7 +57,7 @@ add_executable(overlAIer
 target_include_directories(overlAIer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
 target_include_directories(overlAIer PRIVATE ${LIBYUV_INCLUDE})
-target_link_libraries(overlAIer PRIVATE ALSA::ALSA PkgConfig::DRM ${LIBYUV_LIB} PkgConfig::SAMPLERATE PkgConfig::CAIRO PkgConfig::PANGOCAIRO PkgConfig::DISPLAYINFO zf_log tomlc17 pthread dl)
+target_link_libraries(overlAIer PRIVATE ALSA::ALSA PkgConfig::DRM ${LIBYUV_LIB} PkgConfig::SAMPLERATE PkgConfig::CAIRO PkgConfig::PANGOCAIRO PkgConfig::DISPLAYINFO PkgConfig::HIDAPI zf_log tomlc17 pthread dl)
 
 # Log level: VERBOSE in debug, WARN in release (compile-time removal)
 target_compile_definitions(overlAIer PRIVATE

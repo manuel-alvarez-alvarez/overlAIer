@@ -1,37 +1,14 @@
 #include "usb_caps.h"
 
-#include <dirent.h>
-#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
+#include <hidapi/hidapi.h>
 
 #include "../common/log.h"
-
-static int read_sysfs_string(const char *path, char *buf, int len) {
-    int fd = open(path, O_RDONLY);
-    if (fd < 0)
-        return -1;
-    ssize_t n = read(fd, buf, (size_t)(len - 1));
-    close(fd);
-    if (n <= 0)
-        return -1;
-    buf[n] = '\0';
-    // Strip trailing newline
-    while (n > 0 && (buf[n - 1] == '\n' || buf[n - 1] == '\r'))
-        buf[--n] = '\0';
-    return (int)n;
-}
-
-static int read_sysfs_hex16(const char *path, uint16_t *out) {
-    char buf[16];
-    if (read_sysfs_string(path, buf, sizeof(buf)) < 0)
-        return -1;
-    *out = (uint16_t)strtoul(buf, NULL, 16);
-    return 0;
-}
 
 static int read_sysfs_binary(const char *path, void *buf, int max_len) {
     int fd = open(path, O_RDONLY);
@@ -42,8 +19,7 @@ static int read_sysfs_binary(const char *path, void *buf, int max_len) {
     return (n > 0) ? (int)n : -1;
 }
 
-// Estimate max report length from HID descriptor.
-// This is a simplified parser — looks for report size and count fields.
+// Estimate max report length from HID descriptor
 static int estimate_report_len(const uint8_t *desc, int desc_len) {
     int max_len = 0;
     int report_size = 0;
@@ -64,11 +40,11 @@ static int estimate_report_len(const uint8_t *desc, int desc_len) {
         if (size >= 2)
             value |= desc[i + 2] << 8;
 
-        if (tag == 0x74) // Report Size
+        if (tag == 0x74)
             report_size = value;
-        else if (tag == 0x94) // Report Count
+        else if (tag == 0x94)
             report_count = value;
-        else if (tag == 0x80 || tag == 0x90 || tag == 0xB0) { // Input/Output/Feature
+        else if (tag == 0x80 || tag == 0x90 || tag == 0xB0) {
             int bits = report_size * report_count;
             int bytes = (bits + 7) / 8;
             if (bytes > max_len)
@@ -78,90 +54,74 @@ static int estimate_report_len(const uint8_t *desc, int desc_len) {
         i += 1 + size;
     }
 
-    // Add 1 for report ID if descriptor uses multiple reports
     return max_len > 0 ? max_len + 1 : 8;
 }
 
+// Detect protocol from HID descriptor (keyboard=1, mouse=2, other=0)
+static int detect_protocol(const uint8_t *desc, int desc_len) {
+    for (int i = 0; i + 3 < desc_len; i++) {
+        if (desc[i] == 0x05 && desc[i + 1] == 0x01 &&
+            i + 3 < desc_len && desc[i + 2] == 0x09) {
+            uint8_t usage = desc[i + 3];
+            if (usage == 0x06) return 1; // Keyboard
+            if (usage == 0x02) return 2; // Mouse
+        }
+    }
+    return 0;
+}
+
+// Extract hidraw name from hidapi path (e.g. "/dev/hidraw3" -> "hidraw3")
+static const char *hidraw_from_path(const char *path) {
+    const char *p = strrchr(path, '/');
+    return p ? p + 1 : path;
+}
+
 int ovl_usb_enum_hid_devices(struct ovl_usb_hid_info *entries, int max_entries) {
-    DIR *d = opendir("/sys/class/hidraw");
-    if (!d)
+    struct hid_device_info *devs = hid_enumerate(0, 0);
+    if (!devs)
         return 0;
 
     int count = 0;
-    struct dirent *ent;
-    while ((ent = readdir(d)) != NULL && count < max_entries) {
-        if (ent->d_name[0] == '.')
-            continue;
-
+    for (struct hid_device_info *d = devs; d && count < max_entries; d = d->next) {
         struct ovl_usb_hid_info *info = &entries[count];
         memset(info, 0, sizeof(*info));
-        snprintf(info->hidraw, sizeof(info->hidraw), "%s", ent->d_name);
 
-        char path[512];
+        info->vid = d->vendor_id;
+        info->pid = d->product_id;
+        info->interface_number = d->interface_number;
 
-        // Read device name
-        snprintf(path, sizeof(path), "/sys/class/hidraw/%s/device/uevent", ent->d_name);
-        char uevent[1024];
-        if (read_sysfs_string(path, uevent, sizeof(uevent)) > 0) {
-            // Parse HID_NAME from uevent
-            char *name_line = strstr(uevent, "HID_NAME=");
-            if (name_line) {
-                name_line += 9;
-                char *end = strchr(name_line, '\n');
-                if (end)
-                    *end = '\0';
-                snprintf(info->name, sizeof(info->name), "%s", name_line);
-            }
-            // Parse HID_ID for VID/PID (format: "0003:VVVV:PPPP.NNNN")
-            char *id_line = strstr(uevent, "HID_ID=");
-            if (id_line) {
-                unsigned int bus, vid, pid;
-                if (sscanf(id_line, "HID_ID=%x:%x:%x", &bus, &vid, &pid) == 3) {
-                    info->vid = (uint16_t)vid;
-                    info->pid = (uint16_t)pid;
-                }
-            }
+        if (d->path)
+            snprintf(info->path, sizeof(info->path), "%s", d->path);
+
+        // Convert wide string name to UTF-8
+        if (d->product_string) {
+            for (int i = 0; i < (int)sizeof(info->name) - 1 && d->product_string[i]; i++)
+                info->name[i] = (char)d->product_string[i]; // ASCII subset
         }
+        if (!info->name[0])
+            snprintf(info->name, sizeof(info->name), "%04x:%04x", info->vid, info->pid);
 
-        // Skip devices with no VID/PID (virtual/internal)
+        // Skip devices with no VID/PID
         if (info->vid == 0 && info->pid == 0)
             continue;
 
-        // Read HID report descriptor
-        snprintf(path, sizeof(path), "/sys/class/hidraw/%s/device/report_descriptor",
-                 ent->d_name);
-        info->report_desc_len = read_sysfs_binary(path, info->report_desc,
+        // Read report descriptor from sysfs (hidapi doesn't expose it)
+        char desc_path[512];
+        snprintf(desc_path, sizeof(desc_path),
+                 "/sys/class/hidraw/%s/device/report_descriptor",
+                 hidraw_from_path(info->path));
+        info->report_desc_len = read_sysfs_binary(desc_path, info->report_desc,
                                                    OVL_USB_MAX_DESC_LEN);
         if (info->report_desc_len <= 0)
             continue;
 
         info->report_len = estimate_report_len(info->report_desc, info->report_desc_len);
-
-        // Determine protocol from descriptor heuristics
-        // Check uevent for HID_UNIQ or use descriptor parsing
-        // Simple: check for boot protocol usage page
-        info->protocol = 0; // default: other (gamepad)
-        // Boot keyboard uses protocol 1, boot mouse uses protocol 2
-        // We can check the HID descriptor for usage page + usage
-        for (int i = 0; i + 3 < info->report_desc_len; i++) {
-            if (info->report_desc[i] == 0x05 && info->report_desc[i + 1] == 0x01) {
-                // Usage Page: Generic Desktop
-                if (i + 3 < info->report_desc_len &&
-                    info->report_desc[i + 2] == 0x09) {
-                    uint8_t usage = info->report_desc[i + 3];
-                    if (usage == 0x06) // Keyboard
-                        info->protocol = 1;
-                    else if (usage == 0x02) // Mouse
-                        info->protocol = 2;
-                    // 0x04 = Joystick, 0x05 = Game Pad → stays 0
-                }
-            }
-        }
+        info->protocol = detect_protocol(info->report_desc, info->report_desc_len);
 
         count++;
     }
 
-    closedir(d);
+    hid_free_enumeration(devs);
     return count;
 }
 

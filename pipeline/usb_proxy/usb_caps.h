@@ -8,8 +8,9 @@
 
 struct ovl_usb_hid_info {
     char name[128];
-    char hidraw[32];             // e.g. "hidraw0"
+    char path[256];              // hidapi device path (e.g. /dev/hidraw0)
     uint16_t vid, pid;
+    int interface_number;
     int protocol;                // 1=keyboard, 2=mouse, 0=other
     uint8_t report_desc[OVL_USB_MAX_DESC_LEN];
     int report_desc_len;

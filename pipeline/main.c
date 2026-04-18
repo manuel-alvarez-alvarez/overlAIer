@@ -573,9 +573,9 @@ static int cmd_query(struct options *opts) {
             struct ovl_usb_hid_info *u = &usb_devs[i];
             const char *type = u->protocol == 1 ? "keyboard" :
                                u->protocol == 2 ? "mouse" : "other";
-            printf("    {\"name\": \"%s\", \"hidraw\": \"%s\", "
+            printf("    {\"name\": \"%s\", \"path\": \"%s\", "
                    "\"vid_pid\": \"%04x:%04x\", \"type\": \"%s\"}%s\n",
-                   u->name, u->hidraw, u->vid, u->pid, type,
+                   u->name, u->path, u->vid, u->pid, type,
                    i + 1 < nusb ? "," : "");
         }
         printf("  ]\n");
@@ -667,7 +667,7 @@ static int cmd_query(struct options *opts) {
             const char *type = u->protocol == 1 ? "keyboard" :
                                u->protocol == 2 ? "mouse" : "gamepad/other";
             printf("[%s] %04x:%04x — %s (/dev/%s)\n",
-                   type, u->vid, u->pid, u->name, u->hidraw);
+                   type, u->vid, u->pid, u->name, u->path);
         }
     }
 
