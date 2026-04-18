@@ -131,10 +131,17 @@ int ovl_usb_proxy_init(struct ovl_usb_proxy **out,
     for (int i = 0; i < num_matched; i++) {
         struct proxy_device *dev = &proxy->devices[proxy->num_devices];
         dev->info = matched[i];
-        dev->index = i;
+        dev->index = proxy->num_devices; // sequential gadget function index
         dev->proc_mgr = proc_mgr;
         dev->handle = NULL;
         dev->hidg_fd = -1;
+
+        // Skip interfaces without known standard protocol (keyboard/mouse/gamepad)
+        if (dev->info.protocol == 0) {
+            ZF_LOGD("usb_proxy: skipping unknown interface %d on '%s'",
+                    dev->info.interface_number, dev->info.name);
+            continue;
+        }
 
         // Add HID function to gadget
         if (dev->info.report_desc_len <= 0) {
@@ -142,7 +149,7 @@ int ovl_usb_proxy_init(struct ovl_usb_proxy **out,
                     dev->info.name, dev->info.interface_number);
             continue;
         }
-        if (ovl_gadget_add_hid(i, dev->info.report_desc, dev->info.report_desc_len,
+        if (ovl_gadget_add_hid(dev->index, dev->info.report_desc, dev->info.report_desc_len,
                                MAX_REPORT_SIZE, dev->info.protocol) < 0) {
             ZF_LOGE("usb_proxy: failed to add gadget function for '%s'", dev->info.name);
             continue;
