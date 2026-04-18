@@ -1,7 +1,7 @@
 #include "usb_proxy.h"
 #include "usb_caps.h"
 #include "gadget_configfs.h"
-#include "hid_descriptors.h"
+#include "usb_proxy/hid_descriptors.h"
 
 #include <errno.h>
 #include <fcntl.h>
