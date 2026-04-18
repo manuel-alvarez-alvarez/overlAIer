@@ -76,10 +76,16 @@ int ovl_gadget_create(const char *udc) {
         return -1;
     }
 
-    // Set IDs (Linux Foundation, composite device)
+    // Set IDs and device class
     write_string(GADGET_PATH "/idVendor", "0x1d6b");
     write_string(GADGET_PATH "/idProduct", "0x0104");
     write_string(GADGET_PATH "/bcdUSB", "0x0200");
+    write_string(GADGET_PATH "/bcdDevice", "0x0100");
+    // Class 0x00 = composite (class defined at interface level)
+    // This lets Windows use the per-interface HID class descriptors
+    write_string(GADGET_PATH "/bDeviceClass", "0x00");
+    write_string(GADGET_PATH "/bDeviceSubClass", "0x00");
+    write_string(GADGET_PATH "/bDeviceProtocol", "0x00");
 
     // Strings
     if (mkdir(GADGET_PATH "/strings/0x409", 0755) < 0 && errno != EEXIST)
