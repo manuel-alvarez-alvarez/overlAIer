@@ -85,7 +85,7 @@ int ovl_gadget_create(const char *udc) {
 
     // Set IDs and device class
     write_string(GADGET_PATH "/idVendor", "0x1d6b");
-    write_string(GADGET_PATH "/idProduct", "0x0104");
+    write_string(GADGET_PATH "/idProduct", "0x0200");
     write_string(GADGET_PATH "/bcdUSB", "0x0200");
     write_string(GADGET_PATH "/bcdDevice", "0x0100");
     // Class 0x00 = composite (class defined at interface level)
