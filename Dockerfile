@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpango1.0-dev \
     libsamplerate0-dev \
     libdisplay-info-dev \
-    libhidapi-dev \
+    libusb-1.0-0-dev \
     patchelf \
     && rm -rf /var/lib/apt/lists/*
 

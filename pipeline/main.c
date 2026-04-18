@@ -461,6 +461,7 @@ static void query_video_out_json(const char *dev, const struct ovl_drm_caps *cap
 static int cmd_query(struct options *opts) {
     char vib[32], vob[32], aib[32], aob[32];
     resolve_devices(opts, vib, vob, aib, aob, 0);
+    ovl_usb_init();
 
     if (opts->out_fmt == FMT_JSON) {
         printf("{\n");
@@ -573,9 +574,10 @@ static int cmd_query(struct options *opts) {
             struct ovl_usb_hid_info *u = &usb_devs[i];
             const char *type = u->protocol == 1 ? "keyboard" :
                                u->protocol == 2 ? "mouse" : "other";
-            printf("    {\"name\": \"%s\", \"path\": \"%s\", "
+            printf("    {\"name\": \"%s\", \"bus\": %d, \"address\": %d, \"interface\": %d, "
                    "\"vid_pid\": \"%04x:%04x\", \"type\": \"%s\"}%s\n",
-                   u->name, u->path, u->vid, u->pid, type,
+                   u->name, u->bus, u->address, u->interface_number,
+                   u->vid, u->pid, type,
                    i + 1 < nusb ? "," : "");
         }
         printf("  ]\n");
@@ -666,11 +668,13 @@ static int cmd_query(struct options *opts) {
             struct ovl_usb_hid_info *u = &usb_devs_plain[i];
             const char *type = u->protocol == 1 ? "keyboard" :
                                u->protocol == 2 ? "mouse" : "gamepad/other";
-            printf("[%s] %04x:%04x — %s (/dev/%s)\n",
-                   type, u->vid, u->pid, u->name, u->path);
+            printf("[%s] %04x:%04x — %s (bus %d addr %d iface %d)\n",
+                   type, u->vid, u->pid, u->name,
+                   u->bus, u->address, u->interface_number);
         }
     }
 
+    ovl_usb_exit();
     return 0;
 }
 
@@ -1141,6 +1145,7 @@ static int cmd_run(struct options *opts) {
     int edid_written = 0;
 
     // --- USB HID proxy (independent of video signal) ---
+    ovl_usb_init();
     struct ovl_usb_proxy *usb_proxy = NULL;
     if (opts->num_usb_devices > 0) {
         if (ovl_usb_proxy_init(&usb_proxy, opts->usb_udc,
@@ -1535,6 +1540,7 @@ static int cmd_run(struct options *opts) {
     }
 
     ovl_usb_proxy_destroy(usb_proxy);
+    ovl_usb_exit();
 
     ZF_LOGI("stopped, total frames: %llu", (unsigned long long)total_frames);
     return 0;

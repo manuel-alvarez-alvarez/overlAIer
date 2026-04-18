@@ -1,33 +1,49 @@
 #include "usb_caps.h"
 
-#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <unistd.h>
-#include <hidapi/hidapi.h>
+#include <libusb-1.0/libusb.h>
 
 #include "../common/log.h"
 
-static int read_sysfs_binary(const char *path, void *buf, int max_len) {
-    int fd = open(path, O_RDONLY);
-    if (fd < 0)
-        return -1;
-    ssize_t n = read(fd, buf, (size_t)max_len);
-    close(fd);
-    return (n > 0) ? (int)n : -1;
+static libusb_context *usb_ctx;
+
+int ovl_usb_init(void) {
+    return libusb_init(&usb_ctx);
 }
 
-// Get max report length from sysfs (the kernel already parsed the descriptor)
-static int get_report_len_from_sysfs(const char *hidraw_name) {
-    // The kernel exposes the max report size via HIDIOCGRDESCSIZE or we can
-    // read it from the hidraw device. For simplicity and correctness, use a
-    // generous fixed maximum — the gadget driver uses this as a buffer size.
-    // 64 bytes covers all standard HID reports (keyboard=8, mouse=4-8,
-    // Logitech long reports=20, gamepad=up to 64).
-    (void)hidraw_name;
-    return 64;
+void ovl_usb_exit(void) {
+    if (usb_ctx) {
+        libusb_exit(usb_ctx);
+        usb_ctx = NULL;
+    }
+}
+
+// Get HID report descriptor via USB control transfer
+static int get_hid_report_descriptor(libusb_device_handle *handle, int iface,
+                                     uint8_t *buf, int max_len) {
+    // GET_DESCRIPTOR request for HID Report Descriptor (0x22)
+    int rc = libusb_control_transfer(handle,
+        LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_STANDARD | LIBUSB_RECIPIENT_INTERFACE,
+        LIBUSB_REQUEST_GET_DESCRIPTOR,
+        (0x22 << 8),  // HID Report Descriptor type
+        (uint16_t)iface,
+        buf, (uint16_t)max_len,
+        1000);
+    return rc > 0 ? rc : -1;
+}
+
+// Get product string from device
+static void get_product_string(libusb_device_handle *handle,
+                               struct libusb_device_descriptor *desc,
+                               char *buf, int len) {
+    buf[0] = '\0';
+    if (desc->iProduct > 0) {
+        libusb_get_string_descriptor_ascii(handle, desc->iProduct,
+                                           (unsigned char *)buf, len);
+    }
 }
 
 // Detect protocol from HID descriptor (keyboard=1, mouse=2, other=0)
@@ -43,58 +59,95 @@ static int detect_protocol(const uint8_t *desc, int desc_len) {
     return 0;
 }
 
-// Extract hidraw name from hidapi path (e.g. "/dev/hidraw3" -> "hidraw3")
-static const char *hidraw_from_path(const char *path) {
-    const char *p = strrchr(path, '/');
-    return p ? p + 1 : path;
-}
-
 int ovl_usb_enum_hid_devices(struct ovl_usb_hid_info *entries, int max_entries) {
-    struct hid_device_info *devs = hid_enumerate(0, 0);
-    if (!devs)
+    libusb_device **devs;
+    ssize_t cnt = libusb_get_device_list(usb_ctx, &devs);
+    if (cnt < 0)
         return 0;
 
     int count = 0;
-    for (struct hid_device_info *d = devs; d && count < max_entries; d = d->next) {
-        struct ovl_usb_hid_info *info = &entries[count];
-        memset(info, 0, sizeof(*info));
+    for (ssize_t i = 0; i < cnt && count < max_entries; i++) {
+        libusb_device *dev = devs[i];
+        struct libusb_device_descriptor desc;
+        if (libusb_get_device_descriptor(dev, &desc) < 0)
+            continue;
 
-        info->vid = d->vendor_id;
-        info->pid = d->product_id;
-        info->interface_number = d->interface_number;
+        struct libusb_config_descriptor *config;
+        if (libusb_get_active_config_descriptor(dev, &config) < 0)
+            continue;
 
-        if (d->path)
-            snprintf(info->path, sizeof(info->path), "%s", d->path);
+        for (int j = 0; j < config->bNumInterfaces && count < max_entries; j++) {
+            const struct libusb_interface *iface = &config->interface[j];
+            for (int k = 0; k < iface->num_altsetting; k++) {
+                const struct libusb_interface_descriptor *setting = &iface->altsetting[k];
 
-        // Convert wide string name to UTF-8
-        if (d->product_string) {
-            for (int i = 0; i < (int)sizeof(info->name) - 1 && d->product_string[i]; i++)
-                info->name[i] = (char)d->product_string[i]; // ASCII subset
+                // Only HID class interfaces
+                if (setting->bInterfaceClass != 3) // USB_CLASS_HID
+                    continue;
+
+                // Find interrupt IN endpoint
+                uint8_t ep_in = 0;
+                for (int e = 0; e < setting->bNumEndpoints; e++) {
+                    const struct libusb_endpoint_descriptor *ep = &setting->endpoint[e];
+                    if ((ep->bEndpointAddress & LIBUSB_ENDPOINT_DIR_MASK) == LIBUSB_ENDPOINT_IN &&
+                        (ep->bmAttributes & LIBUSB_TRANSFER_TYPE_MASK) == LIBUSB_TRANSFER_TYPE_INTERRUPT) {
+                        ep_in = ep->bEndpointAddress;
+                        break;
+                    }
+                }
+                if (!ep_in)
+                    continue;
+
+                struct ovl_usb_hid_info *info = &entries[count];
+                memset(info, 0, sizeof(*info));
+                info->vid = desc.idVendor;
+                info->pid = desc.idProduct;
+                info->bus = libusb_get_bus_number(dev);
+                info->address = libusb_get_device_address(dev);
+                info->interface_number = setting->bInterfaceNumber;
+                info->ep_in = ep_in;
+
+                // Try to get product string and report descriptor
+                libusb_device_handle *handle;
+                if (libusb_open(dev, &handle) == 0) {
+                    get_product_string(handle, &desc, info->name, sizeof(info->name));
+
+                    // Detach kernel driver temporarily to get the report descriptor
+                    int was_attached = libusb_kernel_driver_active(handle, info->interface_number);
+                    if (was_attached == 1)
+                        libusb_detach_kernel_driver(handle, info->interface_number);
+
+                    libusb_claim_interface(handle, info->interface_number);
+
+                    info->report_desc_len = get_hid_report_descriptor(
+                        handle, info->interface_number,
+                        info->report_desc, OVL_USB_MAX_DESC_LEN);
+
+                    libusb_release_interface(handle, info->interface_number);
+
+                    // Reattach kernel driver so the device works normally
+                    if (was_attached == 1)
+                        libusb_attach_kernel_driver(handle, info->interface_number);
+
+                    libusb_close(handle);
+                }
+
+                if (!info->name[0])
+                    snprintf(info->name, sizeof(info->name), "%04x:%04x",
+                             info->vid, info->pid);
+
+                if (info->report_desc_len > 0)
+                    info->protocol = detect_protocol(info->report_desc,
+                                                      info->report_desc_len);
+
+                count++;
+            }
         }
-        if (!info->name[0])
-            snprintf(info->name, sizeof(info->name), "%04x:%04x", info->vid, info->pid);
 
-        // Skip devices with no VID/PID
-        if (info->vid == 0 && info->pid == 0)
-            continue;
-
-        // Read report descriptor from sysfs (hidapi doesn't expose it)
-        char desc_path[512];
-        snprintf(desc_path, sizeof(desc_path),
-                 "/sys/class/hidraw/%s/device/report_descriptor",
-                 hidraw_from_path(info->path));
-        info->report_desc_len = read_sysfs_binary(desc_path, info->report_desc,
-                                                   OVL_USB_MAX_DESC_LEN);
-        if (info->report_desc_len <= 0)
-            continue;
-
-        info->report_len = get_report_len_from_sysfs(hidraw_from_path(info->path));
-        info->protocol = detect_protocol(info->report_desc, info->report_desc_len);
-
-        count++;
+        libusb_free_config_descriptor(config);
     }
 
-    hid_free_enumeration(devs);
+    libusb_free_device_list(devs, 1);
     return count;
 }
 
