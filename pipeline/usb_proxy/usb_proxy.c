@@ -1,6 +1,7 @@
 #include "usb_proxy.h"
 #include "usb_caps.h"
 #include "gadget_configfs.h"
+#include "hid_descriptors.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -21,6 +22,7 @@ struct proxy_device {
     struct ovl_usb_hid_info info;
     libusb_device_handle *handle;
     int hidg_fd;            // /dev/hidgN (gadget output)
+    int gadget_report_len;  // max report size for this gadget function
     int index;              // gadget function index
     pthread_t thread;
     int thread_started;     // 1 if pthread_create succeeded
@@ -72,6 +74,11 @@ static void *proxy_thread_fn(void *arg) {
                                                dev->info.pid) < 0)
                 continue; // dropped by processor
         }
+
+        // Truncate to gadget report size (standard descriptors may be smaller
+        // than the original device's reports)
+        if (len > dev->gadget_report_len)
+            len = dev->gadget_report_len;
 
         // Forward to gadget (ignore ESHUTDOWN when OTG host not connected)
         ssize_t w = write(dev->hidg_fd, report, (size_t)len);
@@ -143,17 +150,34 @@ int ovl_usb_proxy_init(struct ovl_usb_proxy **out,
             continue;
         }
 
-        // Add HID function to gadget
-        if (dev->info.report_desc_len <= 0) {
+        // Add HID function to gadget using standard descriptors
+        const uint8_t *gadget_desc;
+        int gadget_desc_len;
+        int gadget_report_len;
+        if (dev->info.protocol == 1) { // keyboard
+            gadget_desc = HID_DESC_KEYBOARD;
+            gadget_desc_len = HID_DESC_KEYBOARD_LEN;
+            gadget_report_len = HID_DESC_KEYBOARD_REPORT_LEN;
+        } else if (dev->info.protocol == 2) { // mouse
+            gadget_desc = HID_DESC_MOUSE;
+            gadget_desc_len = HID_DESC_MOUSE_LEN;
+            gadget_report_len = HID_DESC_MOUSE_REPORT_LEN;
+        } else { // gamepad — use original descriptor
+            gadget_desc = dev->info.report_desc;
+            gadget_desc_len = dev->info.report_desc_len;
+            gadget_report_len = MAX_REPORT_SIZE;
+        }
+        if (gadget_desc_len <= 0) {
             ZF_LOGE("usb_proxy: no report descriptor for '%s' iface %d",
                     dev->info.name, dev->info.interface_number);
             continue;
         }
-        if (ovl_gadget_add_hid(dev->index, dev->info.report_desc, dev->info.report_desc_len,
-                               MAX_REPORT_SIZE, dev->info.protocol) < 0) {
+        if (ovl_gadget_add_hid(dev->index, gadget_desc, gadget_desc_len,
+                               gadget_report_len, dev->info.protocol) < 0) {
             ZF_LOGE("usb_proxy: failed to add gadget function for '%s'", dev->info.name);
             continue;
         }
+        dev->gadget_report_len = gadget_report_len;
 
         // Open the USB device and claim the interface
         libusb_device *usb_dev = find_usb_device(dev->info.bus, dev->info.address);
