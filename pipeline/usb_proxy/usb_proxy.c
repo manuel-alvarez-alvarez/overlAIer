@@ -111,12 +111,10 @@ static void *proxy_thread_fn(void *arg) {
                 continue; // dropped by processor
         }
 
-        // Forward to gadget
+        // Forward to gadget (ignore write errors when host isn't connected)
         ssize_t w = write(dev->hidg_fd, report, (size_t)len);
-        if (w < 0 && errno != EINTR) {
-            ZF_LOGE("usb_proxy: write error on hidg%d: %s", dev->index, strerror(errno));
-            break;
-        }
+        if (w < 0 && errno != EINTR && errno != ESHUTDOWN)
+            ZF_LOGD("usb_proxy: write error on hidg%d: %s", dev->index, strerror(errno));
     }
 
     dev->running = 0;
