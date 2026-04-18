@@ -64,6 +64,13 @@ int ovl_gadget_create(const char *udc) {
 
     ZF_LOGD("gadget: using UDC %s", saved_udc);
 
+    // Clean up stale gadget from a previous run
+    struct stat st;
+    if (stat(GADGET_PATH, &st) == 0) {
+        ZF_LOGW("gadget: cleaning up stale gadget at %s", GADGET_PATH);
+        ovl_gadget_destroy();
+    }
+
     if (mkdir(GADGET_PATH, 0755) < 0 && errno != EEXIST) {
         ZF_LOGE("gadget: mkdir '%s': %s", GADGET_PATH, strerror(errno));
         return -1;
@@ -150,25 +157,18 @@ void ovl_gadget_destroy(void) {
     // Disable
     write_string(GADGET_PATH "/UDC", "");
 
-    // Unlink functions from config
-    for (int i = 0; i < num_hid_functions; i++) {
-        char link[256];
+    // Unlink and remove all hid.usb* functions (scan instead of relying on counter)
+    for (int i = 0; i < 32; i++) {
+        char link[256], func[256];
         snprintf(link, sizeof(link), GADGET_PATH "/configs/c.1/hid.usb%d", i);
-        unlink(link);
-    }
-
-    // Remove string directories
-    rmdir(GADGET_PATH "/configs/c.1/strings/0x409");
-    rmdir(GADGET_PATH "/configs/c.1");
-    rmdir(GADGET_PATH "/strings/0x409");
-
-    // Remove function directories
-    for (int i = 0; i < num_hid_functions; i++) {
-        char func[256];
         snprintf(func, sizeof(func), GADGET_PATH "/functions/hid.usb%d", i);
+        unlink(link);
         rmdir(func);
     }
 
+    rmdir(GADGET_PATH "/configs/c.1/strings/0x409");
+    rmdir(GADGET_PATH "/configs/c.1");
+    rmdir(GADGET_PATH "/strings/0x409");
     rmdir(GADGET_PATH);
     num_hid_functions = 0;
     ZF_LOGD("gadget: destroyed");
