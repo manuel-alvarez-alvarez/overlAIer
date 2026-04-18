@@ -88,17 +88,13 @@ int ovl_gadget_create(const char *udc) {
     write_string(GADGET_PATH "/idProduct", "0x0200");
     write_string(GADGET_PATH "/bcdUSB", "0x0200");
     write_string(GADGET_PATH "/bcdDevice", "0x0100");
-    // Class 0x00 = composite (class defined at interface level)
-    // This lets Windows use the per-interface HID class descriptors
-    write_string(GADGET_PATH "/bDeviceClass", "0x00");
-    write_string(GADGET_PATH "/bDeviceSubClass", "0x00");
-    write_string(GADGET_PATH "/bDeviceProtocol", "0x00");
 
     // Strings
     if (mkdir(GADGET_PATH "/strings/0x409", 0755) < 0 && errno != EEXIST)
         return -1;
     write_string(GADGET_PATH "/strings/0x409/manufacturer", "overlAIer");
     write_string(GADGET_PATH "/strings/0x409/product", "HID Proxy");
+    write_string(GADGET_PATH "/strings/0x409/serialnumber", "0001");
 
     // Configuration
     if (mkdir(GADGET_PATH "/configs/c.1", 0755) < 0 && errno != EEXIST)
