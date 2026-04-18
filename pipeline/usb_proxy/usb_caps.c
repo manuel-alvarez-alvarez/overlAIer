@@ -46,17 +46,49 @@ static void get_product_string(libusb_device_handle *handle,
     }
 }
 
-// Detect protocol from HID descriptor (keyboard=1, mouse=2, other=0)
+// Detect protocol from HID descriptor
+// Returns: 1=keyboard, 2=mouse, 3=gamepad, 0=other, -1=vendor-specific (skip)
 static int detect_protocol(const uint8_t *desc, int desc_len) {
-    for (int i = 0; i + 3 < desc_len; i++) {
-        if (desc[i] == 0x05 && desc[i + 1] == 0x01 &&
-            i + 3 < desc_len && desc[i + 2] == 0x09) {
-            uint8_t usage = desc[i + 3];
-            if (usage == 0x06) return 1; // Keyboard
-            if (usage == 0x02) return 2; // Mouse
+    int has_standard = 0;
+    int has_vendor = 0;
+    int protocol = 0;
+
+    for (int i = 0; i + 1 < desc_len;) {
+        uint8_t item = desc[i];
+        int size = item & 0x03;
+        if (size == 3) size = 4;
+        if (i + size >= desc_len) break;
+
+        int tag = item & 0xFC;
+
+        // Usage Page (1 or 2 byte value)
+        if (tag == 0x04 || tag == 0x06) { // short or long usage page
+            int page = 0;
+            if (size >= 1) page = desc[i + 1];
+            if (size >= 2) page |= desc[i + 2] << 8;
+
+            if (page >= 0xFF00)
+                has_vendor = 1;
+            else if (page == 0x01) // Generic Desktop
+                has_standard = 1;
         }
+
+        // Usage (after Generic Desktop usage page)
+        if (tag == 0x08 && has_standard && size >= 1) {
+            uint8_t usage = desc[i + 1];
+            if (usage == 0x06 && protocol == 0) protocol = 1; // Keyboard
+            if (usage == 0x02 && protocol == 0) protocol = 2; // Mouse
+            if ((usage == 0x04 || usage == 0x05) && protocol == 0) protocol = 3; // Joystick/Gamepad
+        }
+
+        i += 1 + size;
     }
-    return 0;
+
+    // If descriptor only has vendor-specific usage pages, skip it
+    if (has_vendor && !has_standard)
+        return -1;
+
+    return protocol;
 }
 
 int ovl_usb_enum_hid_devices(struct ovl_usb_hid_info *entries, int max_entries) {
@@ -136,9 +168,16 @@ int ovl_usb_enum_hid_devices(struct ovl_usb_hid_info *entries, int max_entries) 
                     snprintf(info->name, sizeof(info->name), "%04x:%04x",
                              info->vid, info->pid);
 
-                if (info->report_desc_len > 0)
+                if (info->report_desc_len > 0) {
                     info->protocol = detect_protocol(info->report_desc,
                                                       info->report_desc_len);
+                    // Skip vendor-specific interfaces
+                    if (info->protocol < 0) {
+                        ZF_LOGD("usb: skipping vendor-specific interface %d on %04x:%04x",
+                                info->interface_number, info->vid, info->pid);
+                        continue;
+                    }
+                }
 
                 count++;
             }

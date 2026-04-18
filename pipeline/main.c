@@ -573,7 +573,8 @@ static int cmd_query(struct options *opts) {
         for (int i = 0; i < nusb; i++) {
             struct ovl_usb_hid_info *u = &usb_devs[i];
             const char *type = u->protocol == 1 ? "keyboard" :
-                               u->protocol == 2 ? "mouse" : "other";
+                               u->protocol == 2 ? "mouse" :
+                               u->protocol == 3 ? "gamepad" : "other";
             printf("    {\"name\": \"%s\", \"bus\": %d, \"address\": %d, \"interface\": %d, "
                    "\"vid_pid\": \"%04x:%04x\", \"type\": \"%s\"}%s\n",
                    u->name, u->bus, u->address, u->interface_number,
@@ -667,7 +668,8 @@ static int cmd_query(struct options *opts) {
         for (int i = 0; i < nusb_plain; i++) {
             struct ovl_usb_hid_info *u = &usb_devs_plain[i];
             const char *type = u->protocol == 1 ? "keyboard" :
-                               u->protocol == 2 ? "mouse" : "gamepad/other";
+                               u->protocol == 2 ? "mouse" :
+                               u->protocol == 3 ? "gamepad" : "other";
             printf("[%s] %04x:%04x — %s (bus %d addr %d iface %d)\n",
                    type, u->vid, u->pid, u->name,
                    u->bus, u->address, u->interface_number);
