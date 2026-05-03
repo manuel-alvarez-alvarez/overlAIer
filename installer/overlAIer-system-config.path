@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch overlAIer config for changes (system)
+
+[Path]
+PathChanged=/home/USER/.overlAIer/overlAIer.toml
+Unit=overlAIer-system-config-reload.service
+
+[Install]
+WantedBy=multi-user.target

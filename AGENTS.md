@@ -75,15 +75,14 @@ overlaier/
 └── installer/
     ├── 99-overlAIer.rules
     ├── install.sh
-    ├── overlAIer-config.path
-    ├── overlAIer-config-reload.service
-    ├── overlAIer.service
     ├── overlAIer-system.service
+    ├── overlAIer-system-config.path
+    ├── overlAIer-system-config-reload.service
     ├── overlAIer-web.service
     └── overlAIer.toml.example
 ```
 
-Note: the installer script also emits user and systemd unit files directly from embedded templates, so treat `installer/` as both reference artifacts and packaging inputs.
+Note: the installer script emits these unit files directly from embedded templates, so treat `installer/` as both reference artifacts and packaging inputs. The pipeline runs as the system unit `overlAIer-system.service` (with `AmbientCapabilities=CAP_SYS_ADMIN CAP_SYS_RAWIO` and `SupplementaryGroups=input` so it can drive ConfigFS / hidg / evdev without full root); the web UI keeps its user-mode unit. A system-level `.path` unit watches `~/.overlAIer/overlAIer.toml` and triggers a oneshot that restarts the pipeline on change.
 
 ## Runtime Architecture
 
