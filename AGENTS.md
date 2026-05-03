@@ -1,206 +1,194 @@
 # OverlAIer
 
-Real-time audio/video overlay processing pipeline. Captures video via V4L2, processes it through pluggable analyzers that produce overlay primitives, and outputs the composited result via DRM/KMS. Works on any Linux system with V4L2 capture and DRM output. Optional Rockchip RGA hardware acceleration when available.
+Real-time audio/video overlay pipeline with optional USB HID proxying. Video comes in through V4L2, overlays are produced by pluggable processors, output is presented through DRM/KMS, audio is passed through with adaptive resampling, and selected USB HID devices can be forwarded through Linux USB gadget mode.
 
 ## Build
 
-- **Build system**: CMake (minimum 3.25), C23 standard
-- **Target platform**: Linux (tested on Rock 5B Plus / RK3588, works on any V4L2+DRM system)
-- **Native build**: `mkdir build && cd build && cmake .. && cmake --build . --target deploy`
-- **Docker build**: `docker buildx build --target artifacts --output type=local,dest=./dist .`
-- **CI**: GitHub Actions on native aarch64 runner (`ubuntu-24.04-arm`)
-- **Dependencies**: ALSA, libdrm, libyuv, libsamplerate, librga (optional), cairo, pangocairo, libdisplay-info, zf_log, tomlc17 (fetched via CMake)
-- **Linting**: clang-tidy runs automatically during build; `cmake --build build --target format` to auto-format
+- Build system: CMake 3.25+
+- Language standard: C23
+- Target platform: Linux
+- Main binary: `overlAIer`
+- Plugin format: shared libraries loaded at runtime via `dlopen`
 
-The `deploy` target builds the pipeline executable and all processor plugins, copying them to `build/` at the project root:
+Primary commands:
 
-```
-build/
-├── overlAIer
-├── overlAIer.toml
-└── processors/
-    └── fps_counter.so
+```bash
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake --build . --target deploy
 ```
 
-## Project Structure
+Useful targets:
 
-```
+- `deploy`: copies the executable, default config, and processor plugins into repo-local `build/`
+- `format`: runs `clang-format` across the source tree if available
+- `format-check`: verifies formatting
+
+If `clang-tidy` is installed, the build wires it into the main target automatically.
+
+## Repo Layout
+
+```text
 overlaier/
-├── CMakeLists.txt                # Top-level, includes pipeline/ and processors/
-├── Dockerfile                    # aarch64 build container (Debian trixie)
-├── .github/workflows/build.yml   # CI build pipeline
-├── .github/workflows/release.yml # Release workflow (manual dispatch, auto-version)
-├── .clang-format                 # Code style config
-├── .clang-tidy                   # Static analysis config
-├── pipeline/                     # Core A/V pipeline
+├── CMakeLists.txt
+├── Dockerfile
+├── README.md
+├── AGENTS.md
+├── pipeline/
 │   ├── CMakeLists.txt
-│   ├── main.c                    # CLI, commands (run/query), pipeline orchestration
+│   ├── main.c
 │   ├── common/
-│   │   ├── pixfmt.c/h            # Internal pixel format enum + V4L2/DRM/RGA/libyuv mapping
-│   │   ├── edid.c/h              # EDID read/generate/write for HDMI passthrough
-│   │   ├── options.c/h           # CLI options struct + parsing helpers
-│   │   ├── config.c/h            # TOML config file loader (tomlc17)
-│   │   └── log.h                 # Logging (zf_log wrapper)
+│   │   ├── config.c/h
+│   │   ├── edid.c/h
+│   │   ├── log.h
+│   │   ├── options.c/h
+│   │   └── pixfmt.c/h
 │   ├── receiver/
-│   │   ├── v4l2_caps.c/h         # V4L2 device capability query
-│   │   ├── v4l2_capture.c/h      # V4L2 streaming capture with DMABUF export
-│   │   ├── alsa_caps.c/h         # ALSA device capability query + auto-detection
-│   │   ├── alsa_capture.c/h      # ALSA PCM capture with auto-reopen on signal loss
-│   │   └── receiver.c/h          # Combined receiver query
+│   │   ├── alsa_capture.c/h
+│   │   ├── alsa_caps.c/h
+│   │   ├── receiver.c/h
+│   │   ├── v4l2_capture.c/h
+│   │   └── v4l2_caps.c/h
 │   ├── encoder/
-│   │   ├── drm_caps.c/h          # DRM/KMS capability query (connectors, planes, modes)
-│   │   ├── drm_output.c/h        # DRM atomic page-flip output with overlay plane
-│   │   └── alsa_playback.c/h     # ALSA PCM playback
+│   │   ├── alsa_playback.c/h
+│   │   ├── drm_caps.c/h
+│   │   └── drm_output.c/h
 │   ├── converter/
-│   │   ├── converter.c/h         # Backend dispatcher + DMA buffer management
-│   │   ├── converter_sw.c/h      # Software conversion via libyuv (NV24->RGB, RGB<->RGB)
-│   │   └── converter_rga.c/h     # RGA2/RGA3 hardware conversion via librga (YUV<->RGB)
+│   │   ├── converter.c/h
+│   │   ├── converter_rga.c/h
+│   │   └── converter_sw.c/h
 │   ├── overlay/
-│   │   └── overlay.c/h           # Cairo + Pango overlay renderer with primitive DSL
-│   └── processor/
-│       ├── processor.h            # Processor plugin interface
-│       └── processor_mgr.c/h     # Plugin loader, per-processor threads, compositor
-├── processors/                   # Processor plugins (built as .so)
+│   │   └── overlay.c/h
+│   ├── processor/
+│   │   ├── processor.h
+│   │   └── processor_mgr.c/h
+│   └── usb_proxy/
+│       ├── gadget_configfs.c/h
+│       ├── usb_caps.c/h
+│       └── usb_proxy.c/h
+├── processors/
+│   ├── CMakeLists.txt
 │   └── fps_counter/
 │       ├── fps_counter.c
 │       └── fps_counter.h
-└── installer/                    # curl|sh installer + systemd units
-    ├── install.sh                # Self-contained installer/uninstaller
-    ├── overlAIer.service         # Systemd user service for the pipeline
-    ├── overlAIer-web.service     # Systemd user service for the web app
-    ├── overlAIer-config.path     # Watches config file, triggers restart
-    ├── overlAIer-config-reload.service  # Oneshot that restarts the service
-    └── overlAIer.toml.example    # Example config file
+└── installer/
+    ├── 99-overlAIer.rules
+    ├── install.sh
+    ├── overlAIer-config.path
+    ├── overlAIer-config-reload.service
+    ├── overlAIer.service
+    ├── overlAIer-system.service
+    ├── overlAIer-web.service
+    └── overlAIer.toml.example
 ```
 
-## Architecture
+Note: the installer script also emits user and systemd unit files directly from embedded templates, so treat `installer/` as both reference artifacts and packaging inputs.
 
-```mermaid
-graph LR
-    subgraph Video
-        Source[Video Source] --> V4L2[V4L2 Capture]
-        V4L2 --> Conv{Converter}
-        Conv -->|zero-copy DMABUF| DRM[DRM Output]
-        DRM --> Display[Display]
-        V4L2 -.->|frame ref| Proc[Processor Plugins]
-        Proc -->|overlay primitives| Cairo[Cairo Renderer]
-        Cairo --> Overlay[DRM Overlay Plane]
-        Overlay --> Display
-    end
+## Runtime Architecture
 
-    subgraph Audio
-        AIn[ALSA Capture] --> Resample[Adaptive Resampler]
-        Resample --> AOut[ALSA Playback]
-    end
-```
+### Video path
 
-Converter is inserted only when V4L2 and DRM formats don't match. Processors run in separate threads and never block the video path.
+1. `receiver/v4l2_capture.c` captures frames from the HDMI or V4L2 source.
+2. `common/edid.c` can synthesize and write a passthrough EDID based on the selected output mode.
+3. `converter/` inserts software or RGA conversion when the capture and display formats do not match.
+4. `processor/processor_mgr.c` fans frames out to plugin threads.
+5. `overlay/overlay.c` renders aggregated overlay primitives into an ARGB buffer.
+6. `encoder/drm_output.c` presents the video frame on the primary plane and overlay on a separate plane.
 
-### EDID Management (`pipeline/common/edid.c`)
+### Audio path
 
-On startup, the pipeline:
-1. Reads the output monitor's EDID via DRM
-2. Generates a passthrough EDID advertising the requested resolution/fps
-3. Uses CVT-RBv2 (via libdisplay-info) for timing computation
-4. Includes HF-VSDB for HDMI 2.0 pixel clocks > 340 MHz
-5. Writes the EDID to the V4L2 capture device, triggering HPD on the source
+1. `receiver/alsa_capture.c` captures PCM from the selected ALSA input.
+2. Adaptive resampling tracks clock drift between capture and playback domains.
+3. `encoder/alsa_playback.c` writes the corrected stream to the selected ALSA output.
 
-### Receiver (`pipeline/receiver/`)
+### USB HID proxy path
 
-- **V4L2**: DV timings auto-detection, DMABUF export, signal loss detection via dequeue timeout
-- **ALSA**: Adaptive resampling via libsamplerate with PI controller for clock drift compensation
-- Auto-detects HDMI input devices; handles signal changes with full teardown/reinit
+1. `usb_proxy/usb_caps.c` enumerates USB-backed evdev devices and classifies them as keyboard, mouse, gamepad, or other.
+2. `usb_proxy/usb_proxy.c` opens matching evdev devices, converts events into boot-format HID reports, and forwards them to gadget endpoints.
+3. `usb_proxy/gadget_configfs.c` creates and tears down HID gadget functions under ConfigFS.
+4. Processor plugins may intercept and modify HID reports through `on_hid_report`.
 
-### Encoder/Output (`pipeline/encoder/`)
+## Processors
 
-- **DRM/KMS**: Atomic modesetting, non-blocking page flips with flip tracking
-- **Dual-plane compositing**: Video on primary plane, overlay on separate ARGB8888 plane
-- **Triple buffering**: 3 V4L2 buffers with max 1 pending flip for stall-free 120Hz capture
+Processors are explicit runtime plugins configured in `overlAIer.toml` through `[[processor]]` entries. The program fails startup if a configured plugin cannot be loaded.
 
-### Processors (`processors/`)
+Each processor runs in its own thread and receives frames through a mailbox. The current manager behavior matters:
 
-Pluggable `.so` plugins loaded at runtime via `dlopen`. Each processor:
-- Runs in its own thread with a frame mailbox (non-blocking delivery)
-- Receives video frames and emits overlay primitives (normalized [0,1] coordinates)
-- Never blocks the video pipeline
+- Frame delivery is non-blocking from the video thread’s point of view.
+- Incoming frame data is copied per processor before `on_frame`.
+- Overlay primitives from all processors are rendered in registration order.
+- `on_flip` is called synchronously when a DRM flip completes if the processor provides it.
+- `on_hid_report` forms a sequential filter chain for proxied HID reports.
+
+Current processor interface:
 
 ```c
+struct ovl_frame_info {
+    uint32_t sequence;
+    uint64_t timestamp_us;
+    uint32_t width, height;
+    uint32_t stride;
+};
+
 struct ovl_processor_def {
     const char *name;
-    struct { enum ovl_pixfmt format; uint32_t width, height; int max_fps; } input;
-    void *(*init)(const struct ovl_processor_def *, uint32_t w, uint32_t h, enum ovl_pixfmt fmt);
-    void (*process)(void *state, const void *frame, uint32_t w, uint32_t h, uint32_t stride,
-                    struct ovl_primitive **prims_out, int *count_out);
+    void *(*init)(const struct ovl_processor_def *def,
+                  uint32_t width, uint32_t height,
+                  enum ovl_pixfmt format);
+    void (*on_frame)(void *state, const void *frame_data,
+                     const struct ovl_frame_info *info,
+                     struct ovl_primitive **prims_out, int *count_out);
+    void (*on_flip)(void *state, const struct ovl_frame_info *info);
+    int (*on_hid_report)(void *state, uint8_t *report, int *report_len,
+                         const char *device_name, uint16_t vid, uint16_t pid);
     void (*destroy)(void *state);
 };
 ```
 
-Processors are configured explicitly in `overlAIer.toml` via `[[processor]]` entries with a `path` field. The program aborts if any configured processor fails to load.
+Export symbol:
 
-### Overlay System (`pipeline/overlay/`)
-
-Primitive types: RECT, CIRCLE, ELLIPSE, LINE, POLYLINE, POLYGON, ARC, BEZIER, TEXT, IMAGE.
-
-All coordinates normalized [0.0, 1.0] relative to frame dimensions. Font sizes relative to frame height. Rendered via Cairo + Pango to an ARGB8888 DRM overlay plane.
-
-### Converters (`pipeline/converter/`)
-
-- **Software** (libyuv): NV24->RGB, RGB<->RGB conversions with NEON optimization
-- **RGA hardware** (librga): YUV<->RGB CSC via RGA2/RGA3 (zero CPU cost)
-- Backend selected automatically; RGA only used for cross-colorspace conversions
-
-### Format System (`pipeline/common/pixfmt.h`)
-
-Canonical `enum ovl_pixfmt` with bidirectional mapping to V4L2, DRM, RGA, and libyuv format codes. Names describe memory byte order (like DRM, not V4L2).
-
-## CLI
-
-```
-overlAIer [command] [options]
-
-Commands:
-  run          Start the overlay pipeline (default)
-  query        Query device capabilities
-
-Device options:
-  --video-in,  -i DEV       V4L2 capture device  (default: first HDMI RX)
-  --video-out, -o DEV[:CON] DRM device[:connector] (e.g. /dev/dri/card0:HDMI-A-2)
-  --audio-in,  -a DEV       ALSA capture device   (default: HDMI input)
-  --audio-out, -A DEV       ALSA playback device  (default: HDMI output)
-
-Format options (run):
-  --fmt                     Set format for both input and output
-  --res            WxH      Set resolution for both input and output
-  --fps            FPS      Set framerate for both input and output
-  --fmt-in,    -f FOURCC    Force V4L2 input format (e.g. NV24, BGR3)
-  --fmt-out,   -F FOURCC    Force DRM output format (e.g. BG24, NV24)
-  --res-in,    -r WxH       Force input resolution (e.g. 1920x1080)
-  --fps-in,    -R FPS       Force input framerate (e.g. 120)
-  --res-out,   -s WxH       Force output resolution
-  --fps-out,   -S FPS       Force output framerate
-
-Query options:
-  --format,    -O FORMAT    Output format: plain (default), json
-
-General:
-  --config,    -C PATH      Config file (default: overlAIer.toml next to the binary)
-  --log-level, -L LEVEL     verbose, debug, info, warn, error, fatal, none
-  --async-flip              Enable async page flip (tearing, lower latency)
-  --help,      -h           Show help
+```c
+const struct ovl_processor_def *ovl_processor_register(void);
 ```
 
-All options can also be set in the TOML config file. CLI arguments always take precedence.
+The in-tree `fps_counter` plugin is the reference implementation for video overlays. There is no in-tree HID mutator plugin yet.
 
-## Key Design Principles
+## Configuration Model
 
-- **Zero-copy where possible**: DMA buffers shared between V4L2 and DRM/KMS
-- **Signal-change resilient**: automatic teardown and reinit on HDMI signal changes
-- **EDID-driven mode control**: generates passthrough EDID to force source resolution/fps
-- **Processors are pure analyzers**: read frames and emit primitives, never mutate video
-- **Overlays are primitives, not pixels**: vector-style drawing commands rendered via Cairo
-- **Optional hardware acceleration**: Rockchip RGA2/RGA3 for conversion when available, software fallback via libyuv
-- **Triple buffering with low latency**: 3 capture buffers, max 1 pending DRM flip
-- **Platform-agnostic**: pure V4L2/DRM/ALSA — no hardware-specific dependencies required
-- **Near-zero logging overhead**: zf_log with compile-time level (INFO in release, VERBOSE in debug)
-- **Pluggable processors**: `.so` plugins configured in TOML and loaded at runtime, each in its own thread
-- **TOML configuration**: all settings in `overlAIer.toml` with CLI override, auto-restart via systemd `.path` watcher
+Config is TOML, loaded from `overlAIer.toml` next to the executable unless `--config` overrides it. CLI options take precedence over config.
+
+Active sections in the current parser:
+
+- `[device]`: `video_in`, `video_out`, `audio_in`, `audio_out`
+- `[format]`: `fmt_in`, `fmt_out`, `res_in`, `res_out`, `fps_in`, `fps_out`
+- `[general]`: `log_level`, `async_flip`
+- `[[processor]]`: `path`
+- `[usb]`: `udc`
+- `[[usb.device]]`: `vid_pid`
+
+## Query Surface
+
+`overlAIer query` reports:
+
+- V4L2 input capabilities
+- DRM/KMS output capabilities
+- ALSA capture/playback capabilities
+- Converter backends and supported format pairs
+- Enumerated USB HID inputs
+
+Plain text and JSON output are both supported through `--format plain|json`.
+
+## Design Constraints
+
+- Favor low-latency paths first; conversion is optional and inserted only when required.
+- The overlay system works in normalized coordinates and is rendered separately from the main video plane.
+- USB proxying is independent from the video signal path and can be initialized before capture comes up.
+- The current USB implementation targets boot keyboard and boot mouse style forwarding, not arbitrary HID descriptor passthrough.
+- The project can compile without RGA; software conversion remains available.
+
+## Editing Guidance
+
+- Keep docs aligned with code, especially CLI help in `pipeline/main.c`, config parsing in `pipeline/common/config.c`, and plugin ABI in `pipeline/processor/processor.h`.
+- Be careful around `pipeline/usb_proxy/`: this area is currently under active modification in the worktree.
+- Do not document processor input negotiation features that do not exist in code yet; the current processor manager always feeds capture-format frames.

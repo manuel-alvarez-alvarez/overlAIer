@@ -28,3 +28,16 @@
 #
 # [[processor]]
 # path = "/path/to/another_plugin.so"
+
+# USB HID device proxy. Devices are forwarded from host USB to the
+# target PC via USB OTG. HID reports pass through the processor chain.
+# Use 'overlAIer query' to list connected HID devices and their VID:PID.
+#
+# [usb]
+# udc = "fe800000.usb"    # UDC controller (auto-detect if omitted)
+#
+# [[usb.device]]
+# vid_pid = "045e:028e"   # Xbox controller
+#
+# [[usb.device]]
+# vid_pid = "046d:c52b"   # Logitech receiver

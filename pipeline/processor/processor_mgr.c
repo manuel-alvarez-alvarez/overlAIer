@@ -306,6 +306,23 @@ void ovl_processor_mgr_notify_flip(struct ovl_processor_mgr *mgr,
     }
 }
 
+int ovl_processor_mgr_process_hid(struct ovl_processor_mgr *mgr,
+                                  uint8_t *report, int *report_len,
+                                  const char *device_name, uint16_t vid, uint16_t pid) {
+    if (!mgr || !mgr->active)
+        return 0;
+
+    for (int i = 0; i < mgr->num_processors; i++) {
+        struct proc_slot *slot = &mgr->slots[i];
+        if (!slot->running || !slot->def->on_hid_report)
+            continue;
+        if (slot->def->on_hid_report(slot->state, report, report_len,
+                                      device_name, vid, pid) < 0)
+            return -1; // dropped
+    }
+    return 0;
+}
+
 void ovl_processor_mgr_destroy(struct ovl_processor_mgr *mgr) {
     if (!mgr)
         return;

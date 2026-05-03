@@ -48,6 +48,9 @@ add_executable(overlAIer
     encoder/alsa_playback.c
     overlay/overlay.c
     processor/processor_mgr.c
+    usb_proxy/usb_proxy.c
+    usb_proxy/usb_caps.c
+    usb_proxy/gadget_configfs.c
 )
 
 target_include_directories(overlAIer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/..)

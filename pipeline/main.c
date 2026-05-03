@@ -19,6 +19,8 @@
 #include "converter/converter.h"
 #include "overlay/overlay.h"
 #include "processor/processor_mgr.h"
+#include "usb_proxy/usb_proxy.h"
+#include "usb_proxy/usb_caps.h"
 #include "receiver/alsa_capture.h"
 #include "encoder/alsa_playback.h"
 #include "common/edid.h"
@@ -81,6 +83,9 @@ static void print_usage(const char *prog) {
         "Query options:\n"
         "  --format,    -O FORMAT    Output format: plain (default), json\n"
         "\n"
+        "USB proxy options (run):\n"
+        "  --usb-device VID:PID      Proxy a USB HID device (repeatable)\n"
+        "\n"
         "General:\n"
         "  --config,    -C PATH      Config file (default: overlAIer.toml next to the binary)\n"
         "  --log-level, -L LEVEL     Log level: verbose, debug, info, warn, error, fatal, none\n"
@@ -104,25 +109,16 @@ static int parse_args(int argc, char *argv[], struct options *opts) {
     }
 
     static const struct option long_opts[] = {
-        {"video-in", required_argument, NULL, 'i'},
-        {"video-out", required_argument, NULL, 'o'},
-        {"audio-in", required_argument, NULL, 'a'},
-        {"audio-out", required_argument, NULL, 'A'},
-        {"fmt", required_argument, NULL, 1},
-        {"res", required_argument, NULL, 2},
-        {"fps", required_argument, NULL, 3},
-        {"fmt-in", required_argument, NULL, 'f'},
-        {"fmt-out", required_argument, NULL, 'F'},
-        {"res-in", required_argument, NULL, 'r'},
-        {"fps-in", required_argument, NULL, 'R'},
-        {"res-out", required_argument, NULL, 's'},
-        {"fps-out", required_argument, NULL, 'S'},
-        {"format", required_argument, NULL, 'O'},
-        {"config", required_argument, NULL, 'C'},
-        {"log-level", required_argument, NULL, 'L'},
-        {"async-flip", no_argument, NULL, 'T'},
-        {"help", no_argument, NULL, 'h'},
-        {NULL, 0, NULL, 0},
+        {"video-in", required_argument, NULL, 'i'}, {"video-out", required_argument, NULL, 'o'},
+        {"audio-in", required_argument, NULL, 'a'}, {"audio-out", required_argument, NULL, 'A'},
+        {"fmt", required_argument, NULL, 1},        {"res", required_argument, NULL, 2},
+        {"fps", required_argument, NULL, 3},        {"fmt-in", required_argument, NULL, 'f'},
+        {"fmt-out", required_argument, NULL, 'F'},  {"res-in", required_argument, NULL, 'r'},
+        {"fps-in", required_argument, NULL, 'R'},   {"res-out", required_argument, NULL, 's'},
+        {"fps-out", required_argument, NULL, 'S'},  {"format", required_argument, NULL, 'O'},
+        {"config", required_argument, NULL, 'C'},   {"log-level", required_argument, NULL, 'L'},
+        {"usb-device", required_argument, NULL, 4}, {"async-flip", no_argument, NULL, 'T'},
+        {"help", no_argument, NULL, 'h'},           {NULL, 0, NULL, 0},
     };
 
     optind = 1;
@@ -207,6 +203,10 @@ static int parse_args(int argc, char *argv[], struct options *opts) {
                 ZF_LOGE("Invalid format '%s' (use plain or json)", optarg);
                 return -1;
             }
+            break;
+        case 4: // --usb-device
+            if (opts->num_usb_devices < OPT_MAX_USB_DEVICES)
+                opts->usb_devices[opts->num_usb_devices++] = optarg;
             break;
         case 'C':
             opts->config_path = optarg;
@@ -451,6 +451,7 @@ static void query_video_out_json(const char *dev, const struct ovl_drm_caps *cap
 static int cmd_query(struct options *opts) {
     char vib[32], vob[32], aib[32], aob[32];
     resolve_devices(opts, vib, vob, aib, aob, 0);
+    ovl_usb_init();
 
     if (opts->out_fmt == FMT_JSON) {
         printf("{\n");
@@ -553,6 +554,26 @@ static int cmd_query(struct options *opts) {
             }
             printf("]}%s\n", i + 1 < nconv ? "," : "");
         }
+        printf("  ],\n");
+
+        // USB HID devices
+        printf("  \"usb_hid\": [\n");
+        struct ovl_usb_hid_info usb_devs[OVL_USB_MAX_DEVICES];
+        int nusb = ovl_usb_enum_hid_devices(usb_devs, OVL_USB_MAX_DEVICES);
+        for (int i = 0; i < nusb; i++) {
+            struct ovl_usb_hid_info *u = &usb_devs[i];
+            const char *type = (u->usage_kind & (OVL_USB_KIND_KBD | OVL_USB_KIND_MOUSE)) ==
+                                       (OVL_USB_KIND_KBD | OVL_USB_KIND_MOUSE)
+                                   ? "kbd+mouse"
+                               : (u->usage_kind & OVL_USB_KIND_KBD)     ? "keyboard"
+                               : (u->usage_kind & OVL_USB_KIND_MOUSE)   ? "mouse"
+                               : (u->usage_kind & OVL_USB_KIND_GAMEPAD) ? "gamepad"
+                                                                        : "other";
+            printf("    {\"name\": \"%s\", \"bus\": %d, \"address\": %d, \"event\": \"%s\", "
+                   "\"vid_pid\": \"%04x:%04x\", \"type\": \"%s\"}%s\n",
+                   u->name, u->bus, u->address, u->evdev_path, u->vid, u->pid, type,
+                   i + 1 < nusb ? "," : "");
+        }
         printf("  ]\n");
 
         printf("}\n");
@@ -629,8 +650,29 @@ static int cmd_query(struct options *opts) {
                 printf(" rotate");
             printf("\n\n");
         }
+
+        // USB HID devices
+        printf("=== USB HID Devices ===\n\n");
+        struct ovl_usb_hid_info usb_devs_plain[OVL_USB_MAX_DEVICES];
+        int nusb_plain = ovl_usb_enum_hid_devices(usb_devs_plain, OVL_USB_MAX_DEVICES);
+        if (nusb_plain == 0) {
+            printf("(none found)\n\n");
+        }
+        for (int i = 0; i < nusb_plain; i++) {
+            struct ovl_usb_hid_info *u = &usb_devs_plain[i];
+            const char *type = (u->usage_kind & (OVL_USB_KIND_KBD | OVL_USB_KIND_MOUSE)) ==
+                                       (OVL_USB_KIND_KBD | OVL_USB_KIND_MOUSE)
+                                   ? "kbd+mouse"
+                               : (u->usage_kind & OVL_USB_KIND_KBD)     ? "keyboard"
+                               : (u->usage_kind & OVL_USB_KIND_MOUSE)   ? "mouse"
+                               : (u->usage_kind & OVL_USB_KIND_GAMEPAD) ? "gamepad"
+                                                                        : "other";
+            printf("[%s] %04x:%04x — %s (bus %d addr %d %s)\n", type, u->vid, u->pid, u->name,
+                   u->bus, u->address, u->evdev_path);
+        }
     }
 
+    ovl_usb_exit();
     return 0;
 }
 
@@ -775,8 +817,7 @@ struct video_thread_ctx {
 // Drain a completed flip and requeue the capture buffer.
 static int drain_flips(struct video_thread_ctx *ctx, int timeout_ms) {
     int done_idx;
-    int ready = ovl_drm_output_acquire_ready(ctx->output, timeout_ms, &done_idx,
-                                              NULL, NULL);
+    int ready = ovl_drm_output_acquire_ready(ctx->output, timeout_ms, &done_idx, NULL, NULL);
     if (ready > 0)
         ovl_v4l2_capture_queue(ctx->cap, done_idx);
     return ready;
@@ -857,8 +898,8 @@ static void *video_thread_fn(void *arg) {
         if (ctx->proc_mgr) {
             struct timespec now;
             clock_gettime(CLOCK_MONOTONIC, &now);
-            uint64_t submit_us = (uint64_t)now.tv_sec * 1000000ULL +
-                                 (uint64_t)now.tv_nsec / 1000ULL;
+            uint64_t submit_us =
+                (uint64_t)now.tv_sec * 1000000ULL + (uint64_t)now.tv_nsec / 1000ULL;
 
             struct ovl_frame_info finfo = {
                 .sequence = dq_info.sequence,
@@ -1100,6 +1141,19 @@ static int cmd_run(struct options *opts) {
     uint64_t total_frames = 0;
     int edid_written = 0;
 
+    // --- USB HID proxy (independent of video signal) ---
+    ovl_usb_init();
+    struct ovl_usb_proxy *usb_proxy = NULL;
+    if (opts->num_usb_devices > 0) {
+        if (ovl_usb_proxy_init(&usb_proxy, opts->usb_udc, opts->usb_devices, opts->num_usb_devices,
+                               NULL) < 0) {
+            ZF_LOGE("usb proxy init failed");
+            ovl_usb_exit();
+            return 1;
+        }
+        ovl_usb_proxy_start(usb_proxy);
+    }
+
     // === Main loop: init → stream → teardown → repeat on signal change ===
     while (running) {
         signal_lost = 0;
@@ -1134,9 +1188,8 @@ static int cmd_run(struct options *opts) {
                 uint32_t edid_fps = opts->fps_in ? opts->fps_in : 120;
 
                 uint8_t pt_edid[256];
-                int pt_len = ovl_edid_build_passthrough(out_edid, (size_t)edid_len, pt_name,
-                                                        edid_w, edid_h, edid_fps, pt_edid,
-                                                        sizeof(pt_edid));
+                int pt_len = ovl_edid_build_passthrough(out_edid, (size_t)edid_len, pt_name, edid_w,
+                                                        edid_h, edid_fps, pt_edid, sizeof(pt_edid));
                 if (pt_len > 0) {
                     if (ovl_edid_write_v4l2(opts->video_in, pt_edid, (size_t)pt_len) == 0) {
                         ZF_LOGI("edid: passthrough EDID set as '%s'", pt_name);
@@ -1482,6 +1535,9 @@ static int cmd_run(struct options *opts) {
             continue; // restart the main loop
         }
     }
+
+    ovl_usb_proxy_destroy(usb_proxy);
+    ovl_usb_exit();
 
     ZF_LOGI("stopped, total frames: %llu", (unsigned long long)total_frames);
     return 0;

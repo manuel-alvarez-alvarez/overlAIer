@@ -42,6 +42,14 @@ struct ovl_processor_def {
     // May be NULL if the processor does not need flip notification.
     void (*on_flip)(void *state, const struct ovl_frame_info *info);
 
+    // Called with a raw HID report from a proxied USB device.
+    // Processors form a chain: the output of one becomes the input of the next.
+    // The processor can modify the report in-place.
+    // Return 0 to pass the report downstream, -1 to drop it.
+    // May be NULL if the processor does not handle HID.
+    int (*on_hid_report)(void *state, uint8_t *report, int *report_len,
+                         const char *device_name, uint16_t vid, uint16_t pid);
+
     // Called once when the processor is stopped.
     void (*destroy)(void *state);
 };

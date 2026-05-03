@@ -119,6 +119,30 @@ int ovl_config_load(const char *path, struct options *opts) {
         }
     }
 
+    // [usb]
+    if (!opts->usb_udc) {
+        s = seek_string(root, "usb.udc");
+        if (s) opts->usb_udc = strdup(s);
+    }
+
+    // [[usb.device]] array
+    if (!opts->num_usb_devices) {
+        toml_datum_t usb_tbl = toml_get(root, "usb");
+        if (usb_tbl.type == TOML_TABLE) {
+            toml_datum_t darr = toml_get(usb_tbl, "device");
+            if (darr.type == TOML_ARRAY) {
+                for (int i = 0; i < darr.u.arr.size && opts->num_usb_devices < OPT_MAX_USB_DEVICES; i++) {
+                    toml_datum_t entry = darr.u.arr.elem[i];
+                    if (entry.type != TOML_TABLE)
+                        continue;
+                    toml_datum_t vp = toml_get(entry, "vid_pid");
+                    if (vp.type == TOML_STRING)
+                        opts->usb_devices[opts->num_usb_devices++] = strdup(vp.u.s);
+                }
+            }
+        }
+    }
+
     toml_free(res);
     return 0;
 }
