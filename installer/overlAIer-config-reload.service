@@ -3,4 +3,4 @@ Description=Restart overlAIer on config change
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/systemctl --user restart overlAIer.service
+ExecStart=/usr/bin/systemctl restart overlAIer.service

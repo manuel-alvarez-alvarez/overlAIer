@@ -66,10 +66,10 @@ overlaier/
 │       └── fps_counter.h
 └── installer/                    # curl|sh installer + systemd units
     ├── install.sh                # Self-contained installer/uninstaller
-    ├── overlAIer.service         # Systemd user service for the pipeline
+    ├── overlAIer.service         # Systemd system service for the pipeline (runs as root)
     ├── overlAIer-web.service     # Systemd user service for the web app
-    ├── overlAIer-config.path     # Watches config file, triggers restart
-    ├── overlAIer-config-reload.service  # Oneshot that restarts the service
+    ├── overlAIer-config.path     # System path unit watching the config file
+    ├── overlAIer-config-reload.service  # System oneshot that restarts the pipeline service
     └── overlAIer.toml.example    # Example config file
 ```
 

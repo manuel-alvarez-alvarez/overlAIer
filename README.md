@@ -21,7 +21,7 @@ Captures HDMI video and audio via V4L2, passes it through to a display via DRM/K
 curl -fsSL https://raw.githubusercontent.com/manuel-alvarez-alvarez/overlAIer/master/installer/install.sh | sh
 ```
 
-Installs to `~/.overlAIer/` with bundled shared libraries (no system dependencies needed). Includes systemd user services and a config file watcher that auto-restarts on config changes.
+Installs to `~/.overlAIer/` with bundled shared libraries (no system dependencies needed). The pipeline binary needs root (USB gadget configfs, `/dev/hidg*`, `/dev/input/event*`), so the installer registers it as a systemd **system** service via `sudo`; the web UI stays a user service. A `.path` unit watches the config file and auto-restarts the pipeline on changes. Run the installer as your normal user — it will prompt for sudo when needed.
 
 To update an existing installation, run the same command. To uninstall:
 
