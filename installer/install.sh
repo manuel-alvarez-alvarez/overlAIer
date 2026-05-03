@@ -287,6 +287,16 @@ do_install() {
 #
 # [[processor]]
 # path = "/path/to/fps_counter.so"
+
+# USB HID device proxy. Selected USB HID devices are forwarded to the
+# target PC via USB OTG; reports pass through the processor chain.
+# Run `overlAIer query` to list connected HID devices and their VID:PID.
+#
+# [usb]
+# udc = "fe800000.usb"    # UDC controller (auto-detected if omitted)
+#
+# [[usb.device]]
+# vid_pid = "046d:c52b"   # Logitech Unifying receiver
 TOML
         info "Created default config at $INSTALL_DIR/overlAIer.toml"
     fi
