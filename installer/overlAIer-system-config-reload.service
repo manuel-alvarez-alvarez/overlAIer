@@ -1,0 +1,6 @@
+[Unit]
+Description=Restart overlAIer system service on config change
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl restart overlAIer-system.service

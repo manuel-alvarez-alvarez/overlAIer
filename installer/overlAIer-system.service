@@ -5,7 +5,9 @@ After=local-fs.target
 
 [Service]
 Type=simple
+User=USER
 ExecStart=/home/USER/.overlAIer/bin/overlAIer --config /home/USER/.overlAIer/overlAIer.toml
+EnvironmentFile=-/home/USER/.overlAIer/overlaier.env
 Restart=on-failure
 RestartSec=5
 # Required for USB proxy (ConfigFS, hidraw, evdev grab)
