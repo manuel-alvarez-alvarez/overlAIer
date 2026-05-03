@@ -136,7 +136,7 @@ EnvironmentFile=-$INSTALL_DIR/overlaier.env
 Restart=on-failure
 RestartSec=5
 # Required for USB proxy (ConfigFS, hidraw, evdev grab)
-AmbientCapabilities=CAP_SYS_ADMIN CAP_SYS_RAWIO
+AmbientCapabilities=CAP_SYS_ADMIN CAP_SYS_RAWIO CAP_DAC_OVERRIDE
 SupplementaryGroups=input
 
 [Install]
