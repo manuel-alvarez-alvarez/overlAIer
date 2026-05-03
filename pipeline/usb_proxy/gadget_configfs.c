@@ -110,8 +110,8 @@ int ovl_gadget_create(const char *udc) {
     return 0;
 }
 
-int ovl_gadget_add_hid(int index, const void *report_desc, int desc_len,
-                       int report_len, int protocol) {
+int ovl_gadget_add_hid(int index, const void *report_desc, int desc_len, int report_len,
+                       int subclass, int protocol) {
     char func_path[256];
     snprintf(func_path, sizeof(func_path), GADGET_PATH "/functions/hid.usb%d", index);
 
@@ -121,23 +121,22 @@ int ovl_gadget_add_hid(int index, const void *report_desc, int desc_len,
     }
 
     char path[512];
+    char num_str[16];
 
-    // Set HID protocol and subclass.
-    // For boot keyboard (1) and boot mouse (2), use subclass=1 (boot interface)
-    // with the matching protocol so Windows handles SET_PROTOCOL correctly.
-    // For other devices (gamepads), use subclass=0/protocol=0.
-    snprintf(path, sizeof(path), "%s/protocol", func_path);
-    char proto_str[8];
-    snprintf(proto_str, sizeof(proto_str), "%d", (protocol == 1 || protocol == 2) ? protocol : 0);
-    write_string(path, proto_str);
-
+    // Mirror the source device's bInterfaceSubClass / bInterfaceProtocol so
+    // host drivers see the same interface class triple they would on the
+    // physical device.
     snprintf(path, sizeof(path), "%s/subclass", func_path);
-    write_string(path, (protocol == 1 || protocol == 2) ? "1" : "0");
+    snprintf(num_str, sizeof(num_str), "%d", subclass);
+    write_string(path, num_str);
+
+    snprintf(path, sizeof(path), "%s/protocol", func_path);
+    snprintf(num_str, sizeof(num_str), "%d", protocol);
+    write_string(path, num_str);
 
     snprintf(path, sizeof(path), "%s/report_length", func_path);
-    char rlen_str[16];
-    snprintf(rlen_str, sizeof(rlen_str), "%d", report_len);
-    write_string(path, rlen_str);
+    snprintf(num_str, sizeof(num_str), "%d", report_len);
+    write_string(path, num_str);
 
     snprintf(path, sizeof(path), "%s/report_desc", func_path);
     if (write_file(path, report_desc, desc_len) < 0)
@@ -154,8 +153,8 @@ int ovl_gadget_add_hid(int index, const void *report_desc, int desc_len,
     }
 
     num_hid_functions++;
-    ZF_LOGD("gadget: added hid.usb%d (protocol=%d, desc=%d bytes, report=%d bytes)",
-            index, protocol, desc_len, report_len);
+    ZF_LOGD("gadget: added hid.usb%d (subclass=%d, protocol=%d, desc=%d bytes, report=%d bytes)",
+            index, subclass, protocol, desc_len, report_len);
     return 0;
 }
 
@@ -166,6 +165,26 @@ int ovl_gadget_enable(void) {
     }
     ZF_LOGI("gadget: enabled on UDC %s with %d HID function(s)", saved_udc, num_hid_functions);
     return 0;
+}
+
+int ovl_gadget_get_hid_minor(int index) {
+    char path[256];
+    snprintf(path, sizeof(path), GADGET_PATH "/functions/hid.usb%d/dev", index);
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        ZF_LOGE("gadget: cannot open '%s': %s", path, strerror(errno));
+        return -1;
+    }
+    char buf[32];
+    ssize_t n = read(fd, buf, sizeof(buf) - 1);
+    close(fd);
+    if (n <= 0)
+        return -1;
+    buf[n] = '\0';
+    int major, minor;
+    if (sscanf(buf, "%d:%d", &major, &minor) != 2)
+        return -1;
+    return minor;
 }
 
 void ovl_gadget_destroy(void) {

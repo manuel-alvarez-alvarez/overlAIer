@@ -9,10 +9,8 @@ struct ovl_processor_mgr;
 // vid_pids: array of "VVVV:PPPP" strings identifying devices to proxy
 // num_devices: number of entries in vid_pids
 // proc_mgr: processor manager for HID report chain (may be NULL)
-int ovl_usb_proxy_init(struct ovl_usb_proxy **out,
-                       const char *udc,
-                       const char **vid_pids, int num_devices,
-                       struct ovl_processor_mgr *proc_mgr);
+int ovl_usb_proxy_init(struct ovl_usb_proxy **out, const char *udc, const char **vid_pids,
+                       int num_devices, struct ovl_processor_mgr *proc_mgr);
 
 // Start proxy threads for all matched devices.
 int ovl_usb_proxy_start(struct ovl_usb_proxy *proxy);

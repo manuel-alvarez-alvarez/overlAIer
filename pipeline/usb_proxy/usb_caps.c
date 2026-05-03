@@ -1,197 +1,190 @@
 #include "usb_caps.h"
 
+#include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <libusb-1.0/libusb.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <linux/input.h>
 
 #include "../common/log.h"
 
-static libusb_context *usb_ctx;
-
 int ovl_usb_init(void) {
-    return libusb_init(&usb_ctx);
+    return 0;
 }
+void ovl_usb_exit(void) {}
 
-void ovl_usb_exit(void) {
-    if (usb_ctx) {
-        libusb_exit(usb_ctx);
-        usb_ctx = NULL;
-    }
-}
+// Bit-test on an EVIOCGBIT result.
+#define BIT(buf, n) (((buf)[(n) / 8] >> ((n) % 8)) & 1)
 
-// Get HID report descriptor via USB control transfer
-static int get_hid_report_descriptor(libusb_device_handle *handle, int iface,
-                                     uint8_t *buf, int max_len) {
-    // GET_DESCRIPTOR request for HID Report Descriptor (0x22)
-    int rc = libusb_control_transfer(handle,
-        LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_STANDARD | LIBUSB_RECIPIENT_INTERFACE,
-        LIBUSB_REQUEST_GET_DESCRIPTOR,
-        (0x22 << 8),  // HID Report Descriptor type
-        (uint16_t)iface,
-        buf, (uint16_t)max_len,
-        1000);
-    return rc > 0 ? rc : -1;
-}
+// Read /sys/class/input/eventN's device chain to find the parent USB device,
+// then read its idVendor/idProduct/busnum/devnum. Returns 0 on success.
+static int read_parent_usb(int input_index, uint16_t *vid, uint16_t *pid, uint8_t *bus,
+                           uint8_t *addr) {
+    char link[256];
+    snprintf(link, sizeof(link), "/sys/class/input/event%d/device", input_index);
 
-// Get product string from device
-static void get_product_string(libusb_device_handle *handle,
-                               struct libusb_device_descriptor *desc,
-                               char *buf, int len) {
-    buf[0] = '\0';
-    if (desc->iProduct > 0) {
-        libusb_get_string_descriptor_ascii(handle, desc->iProduct,
-                                           (unsigned char *)buf, len);
-    }
-}
-
-// Detect protocol from HID descriptor
-// Returns: 1=keyboard, 2=mouse, 3=gamepad, 0=other, -1=vendor-specific (skip)
-static int detect_protocol(const uint8_t *desc, int desc_len) {
-    int has_standard = 0;
-    int has_vendor = 0;
-    int protocol = 0;
-
-    for (int i = 0; i + 1 < desc_len;) {
-        uint8_t item = desc[i];
-        int size = item & 0x03;
-        if (size == 3) size = 4;
-        if (i + size >= desc_len) break;
-
-        int tag = item & 0xFC;
-
-        // Usage Page (1 or 2 byte value)
-        if (tag == 0x04 || tag == 0x06) { // short or long usage page
-            int page = 0;
-            if (size >= 1) page = desc[i + 1];
-            if (size >= 2) page |= desc[i + 2] << 8;
-
-            if (page >= 0xFF00)
-                has_vendor = 1;
-            else if (page == 0x01) // Generic Desktop
-                has_standard = 1;
-        }
-
-        // Usage (after Generic Desktop usage page)
-        if (tag == 0x08 && has_standard && size >= 1) {
-            uint8_t usage = desc[i + 1];
-            if (usage == 0x06 && protocol == 0) protocol = 1; // Keyboard
-            if (usage == 0x02 && protocol == 0) protocol = 2; // Mouse
-            if ((usage == 0x04 || usage == 0x05) && protocol == 0) protocol = 3; // Joystick/Gamepad
-        }
-
-        i += 1 + size;
-    }
-
-    // If descriptor only has vendor-specific usage pages, skip it
-    if (has_vendor && !has_standard)
+    char target[PATH_MAX];
+    if (!realpath(link, target))
         return -1;
 
-    return protocol;
+    // Walk up looking for a directory that has idVendor/idProduct/busnum/devnum.
+    char path[PATH_MAX];
+    while (1) {
+        snprintf(path, sizeof(path), "%s/idVendor", target);
+        if (access(path, R_OK) == 0)
+            break;
+        // Strip the last component
+        char *slash = strrchr(target, '/');
+        if (!slash || slash == target)
+            return -1;
+        *slash = '\0';
+    }
+
+    char buf[16];
+    int v, p, b, d;
+    int fd;
+    ssize_t n;
+
+    snprintf(path, sizeof(path), "%s/idVendor", target);
+    fd = open(path, O_RDONLY);
+    if (fd < 0)
+        return -1;
+    n = read(fd, buf, sizeof(buf) - 1);
+    close(fd);
+    if (n <= 0)
+        return -1;
+    buf[n] = '\0';
+    if (sscanf(buf, "%x", &v) != 1)
+        return -1;
+
+    snprintf(path, sizeof(path), "%s/idProduct", target);
+    fd = open(path, O_RDONLY);
+    if (fd < 0)
+        return -1;
+    n = read(fd, buf, sizeof(buf) - 1);
+    close(fd);
+    if (n <= 0)
+        return -1;
+    buf[n] = '\0';
+    if (sscanf(buf, "%x", &p) != 1)
+        return -1;
+
+    snprintf(path, sizeof(path), "%s/busnum", target);
+    fd = open(path, O_RDONLY);
+    if (fd < 0)
+        return -1;
+    n = read(fd, buf, sizeof(buf) - 1);
+    close(fd);
+    if (n <= 0)
+        return -1;
+    buf[n] = '\0';
+    if (sscanf(buf, "%d", &b) != 1)
+        return -1;
+
+    snprintf(path, sizeof(path), "%s/devnum", target);
+    fd = open(path, O_RDONLY);
+    if (fd < 0)
+        return -1;
+    n = read(fd, buf, sizeof(buf) - 1);
+    close(fd);
+    if (n <= 0)
+        return -1;
+    buf[n] = '\0';
+    if (sscanf(buf, "%d", &d) != 1)
+        return -1;
+
+    *vid = (uint16_t)v;
+    *pid = (uint16_t)p;
+    *bus = (uint8_t)b;
+    *addr = (uint8_t)d;
+    return 0;
+}
+
+// Open the evdev, classify it (keyboard / mouse / gamepad / other), and read
+// its name. Returns 0 on success.
+static int classify_evdev(const char *path, char *name, int name_len, int *usage_kind) {
+    int fd = open(path, O_RDONLY | O_NONBLOCK);
+    if (fd < 0) {
+        ZF_LOGD("usb_caps: cannot open '%s': %s", path, strerror(errno));
+        return -1;
+    }
+
+    if (ioctl(fd, EVIOCGNAME(name_len), name) < 0)
+        name[0] = '\0';
+
+    uint8_t key_bits[(KEY_MAX / 8) + 1] = {0};
+    uint8_t rel_bits[(REL_MAX / 8) + 1] = {0};
+    uint8_t abs_bits[(ABS_MAX / 8) + 1] = {0};
+    ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(key_bits)), key_bits);
+    ioctl(fd, EVIOCGBIT(EV_REL, sizeof(rel_bits)), rel_bits);
+    ioctl(fd, EVIOCGBIT(EV_ABS, sizeof(abs_bits)), abs_bits);
+
+    int has_alpha = BIT(key_bits, KEY_A);
+    int has_btn_left = BIT(key_bits, BTN_LEFT);
+    int has_rel_pointer = BIT(rel_bits, REL_X) && BIT(rel_bits, REL_Y);
+    int has_abs_pointer = (BIT(abs_bits, ABS_X) && BIT(abs_bits, ABS_Y)) ||
+                          (BIT(abs_bits, ABS_MT_POSITION_X) && BIT(abs_bits, ABS_MT_POSITION_Y));
+    int has_touch_hint = BIT(key_bits, BTN_TOUCH) || BIT(key_bits, BTN_TOOL_FINGER) ||
+                         BIT(key_bits, BTN_TOOL_DOUBLETAP) || BIT(key_bits, BTN_TOOL_TRIPLETAP);
+    int has_btn_joy = BIT(key_bits, BTN_JOYSTICK) || BIT(key_bits, BTN_GAMEPAD);
+
+    int kind = 0;
+    if (has_alpha)
+        kind |= OVL_USB_KIND_KBD;
+    if ((has_rel_pointer && has_btn_left) || (has_abs_pointer && (has_touch_hint || has_btn_left)))
+        kind |= OVL_USB_KIND_MOUSE;
+    // Gamepads are mutually exclusive with kbd/mouse — only set if neither
+    // matched, to avoid mislabelling devices that happen to expose BTN_*.
+    if (kind == 0 && has_btn_joy)
+        kind = OVL_USB_KIND_GAMEPAD;
+    *usage_kind = kind;
+
+    close(fd);
+    return 0;
 }
 
 int ovl_usb_enum_hid_devices(struct ovl_usb_hid_info *entries, int max_entries) {
-    libusb_device **devs;
-    ssize_t cnt = libusb_get_device_list(usb_ctx, &devs);
-    if (cnt < 0)
+    DIR *d = opendir("/sys/class/input");
+    if (!d)
         return 0;
 
     int count = 0;
-    for (ssize_t i = 0; i < cnt && count < max_entries; i++) {
-        libusb_device *dev = devs[i];
-        struct libusb_device_descriptor desc;
-        if (libusb_get_device_descriptor(dev, &desc) < 0)
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL && count < max_entries) {
+        int idx;
+        if (sscanf(ent->d_name, "event%d", &idx) != 1)
             continue;
 
-        struct libusb_config_descriptor *config;
-        if (libusb_get_active_config_descriptor(dev, &config) < 0)
+        struct ovl_usb_hid_info *info = &entries[count];
+        memset(info, 0, sizeof(*info));
+
+        if (read_parent_usb(idx, &info->vid, &info->pid, &info->bus, &info->address) < 0)
+            continue; // not a USB-backed input device
+
+        info->input_index = idx;
+        snprintf(info->evdev_path, sizeof(info->evdev_path), "/dev/input/event%d", idx);
+
+        if (classify_evdev(info->evdev_path, info->name, sizeof(info->name), &info->usage_kind) < 0)
             continue;
 
-        for (int j = 0; j < config->bNumInterfaces && count < max_entries; j++) {
-            const struct libusb_interface *iface = &config->interface[j];
-            for (int k = 0; k < iface->num_altsetting; k++) {
-                const struct libusb_interface_descriptor *setting = &iface->altsetting[k];
+        if (!info->name[0])
+            snprintf(info->name, sizeof(info->name), "%04x:%04x", info->vid, info->pid);
 
-                // Only HID class interfaces
-                if (setting->bInterfaceClass != 3) // USB_CLASS_HID
-                    continue;
-
-                // Find interrupt IN endpoint
-                uint8_t ep_in = 0;
-                for (int e = 0; e < setting->bNumEndpoints; e++) {
-                    const struct libusb_endpoint_descriptor *ep = &setting->endpoint[e];
-                    if ((ep->bEndpointAddress & LIBUSB_ENDPOINT_DIR_MASK) == LIBUSB_ENDPOINT_IN &&
-                        (ep->bmAttributes & LIBUSB_TRANSFER_TYPE_MASK) == LIBUSB_TRANSFER_TYPE_INTERRUPT) {
-                        ep_in = ep->bEndpointAddress;
-                        break;
-                    }
-                }
-                if (!ep_in)
-                    continue;
-
-                struct ovl_usb_hid_info *info = &entries[count];
-                memset(info, 0, sizeof(*info));
-                info->vid = desc.idVendor;
-                info->pid = desc.idProduct;
-                info->bus = libusb_get_bus_number(dev);
-                info->address = libusb_get_device_address(dev);
-                info->interface_number = setting->bInterfaceNumber;
-                info->ep_in = ep_in;
-
-                // Try to get product string and report descriptor
-                libusb_device_handle *handle;
-                if (libusb_open(dev, &handle) == 0) {
-                    get_product_string(handle, &desc, info->name, sizeof(info->name));
-
-                    // Detach kernel driver temporarily to get the report descriptor
-                    int was_attached = libusb_kernel_driver_active(handle, info->interface_number);
-                    if (was_attached == 1)
-                        libusb_detach_kernel_driver(handle, info->interface_number);
-
-                    libusb_claim_interface(handle, info->interface_number);
-
-                    info->report_desc_len = get_hid_report_descriptor(
-                        handle, info->interface_number,
-                        info->report_desc, OVL_USB_MAX_DESC_LEN);
-
-                    libusb_release_interface(handle, info->interface_number);
-
-                    // Reattach kernel driver so the device works normally
-                    if (was_attached == 1)
-                        libusb_attach_kernel_driver(handle, info->interface_number);
-
-                    libusb_close(handle);
-                }
-
-                if (!info->name[0])
-                    snprintf(info->name, sizeof(info->name), "%04x:%04x",
-                             info->vid, info->pid);
-
-                if (info->report_desc_len > 0) {
-                    info->protocol = detect_protocol(info->report_desc,
-                                                      info->report_desc_len);
-                    // Skip vendor-specific interfaces
-                    if (info->protocol < 0) {
-                        ZF_LOGD("usb: skipping vendor-specific interface %d on %04x:%04x",
-                                info->interface_number, info->vid, info->pid);
-                        continue;
-                    }
-                }
-
-                count++;
-            }
-        }
-
-        libusb_free_config_descriptor(config);
+        count++;
     }
-
-    libusb_free_device_list(devs, 1);
+    closedir(d);
     return count;
 }
 
-int ovl_usb_find_devices(const char **vid_pids, int num_vid_pids,
-                         struct ovl_usb_hid_info *matched, int max_matched) {
+int ovl_usb_find_devices(const char **vid_pids, int num_vid_pids, struct ovl_usb_hid_info *matched,
+                         int max_matched) {
     struct ovl_usb_hid_info all[OVL_USB_MAX_DEVICES];
     int total = ovl_usb_enum_hid_devices(all, OVL_USB_MAX_DEVICES);
 
